@@ -1,0 +1,12 @@
+{
+  "name": "agent-guardrails",
+  "description": "Guardrail hooks for Claude Code.",
+  "owner": { "name": "Chris Gentile" },
+  "plugins": [
+    {
+      "name": "agent-guardrails",
+      "source": "./packages/guardrails-plugin",
+      "description": "Policy hooks for Claude Code: deny, ask or allow each tool call, step cap, redacted audit log, untrusted-output scan."
+    }
+  ]
+}
