@@ -1,6 +1,6 @@
 # agent-guardrails
 
-[![CI](https://github.com/CGDarkstardev1/agent-guardrails/actions/workflows/ci.yml/badge.svg)](https://github.com/CGDarkstardev1/agent-guardrails/actions/workflows/ci.yml)
+[![CI](https://github.com/jdgafx/agent-guardrails/actions/workflows/ci.yml/badge.svg)](https://github.com/jdgafx/agent-guardrails/actions/workflows/ci.yml)
 
 A Claude Code plugin that checks every tool call the agent makes, before it runs.
 It denies the dangerous ones, asks you about the risky ones, and writes a private log of what happened.
@@ -63,7 +63,7 @@ claude --plugin-dir packages/guardrails-plugin
 Or install it from this repo:
 
 ```
-/plugin marketplace add CGDarkstardev1/agent-guardrails
+/plugin marketplace add jdgafx/agent-guardrails
 /plugin install agent-guardrails@agent-guardrails
 ```
 
