@@ -6,7 +6,8 @@ from collections import namedtuple
 
 Decision = namedtuple("Decision", "decision rule reason step")
 
-PATH_KEYS = ("file_path", "path", "notebook_path")
+MAX_COMMAND_CHARS = 20000
+PATH_KEYS =("file_path", "path", "notebook_path")
 _SPLIT = re.compile(r"[\s;&|<>=()\"'`]+")
 _RANK = {"deny": 2, "ask": 1}
 
@@ -47,6 +48,12 @@ def rule_hit(rule, tool_name, tool_input):
 
 def evaluate(policy, tool_name, tool_input, step):
     """Strongest rule wins (deny over ask). The first rule of that strength is reported."""
+    cmd = tool_input.get("command") if tool_name == "Bash" else None
+    if isinstance(cmd, str) and len(cmd) > MAX_COMMAND_CHARS:
+        # Regex time grows with input size, and a hook that times out lets the call through.
+        return Decision("ask", "oversize-command",
+                        "Command is over %d characters, too long to check. Confirm it."
+                        % MAX_COMMAND_CHARS, step)
     best = None
     for r in policy["rules"]:
         if rule_hit(r, tool_name, tool_input) and (

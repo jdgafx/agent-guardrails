@@ -38,6 +38,18 @@ def test_copied_plugin_full_flow(tmp_path):
     assert last["warnings"] and last["warnings"][0]["warning"] == "prompt-injection-suspected"
 
 
+def test_no_python3_exits_non_zero_so_onfailure_block_applies(tmp_path):
+    cfg = json.loads((PLUGIN / "hooks" / "hooks.json").read_text())
+    hook = cfg["hooks"]["PreToolUse"][0]["hooks"][0]
+    assert hook["onFailure"] == "block"
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    cmd = hook["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
+    r = subprocess.run(["/bin/bash", "-c", cmd], input="{}", capture_output=True, text=True,
+                       env={"PATH": str(empty)})
+    assert r.returncode not in (0, 2) and r.stdout == ""  # "failure", not a decision
+
+
 def test_broken_install_still_asks(tmp_path):
     plugin = tmp_path / "copy"
     shutil.copytree(PLUGIN, plugin)

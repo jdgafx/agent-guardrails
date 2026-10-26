@@ -4,13 +4,13 @@ How to explain this project. Everything here matches the code. If a claim is not
 
 ## 30 seconds
 
-"I built a Claude Code plugin that checks every tool call before it runs. A policy file says what to deny, what to ask about, and what to allow. If the guard itself breaks, it asks a human instead of failing open. It keeps a redacted audit log, caps runaway sessions, and scans web output for injection phrases. It runs on stock Python with no install step, and I wrote down what it does not cover."
+"I built a Claude Code plugin that checks every tool call before it runs. A policy file says what to deny, what to ask about, and what to allow. If the guard itself breaks, it asks a human or blocks the call instead of failing open. It keeps a redacted audit log, caps runaway sessions, and scans web output for injection phrases. It runs on stock Python with no install step, and I wrote down what it does not cover."
 
 ## 3 minutes
 
 1. **Problem.** An AI coding agent runs shell commands and reads files for you. Most of the time that is fine. Sometimes it reads your `.env`, force-pushes, or deploys to production.
 2. **Idea.** Claude Code lets a hook run before every tool call and answer deny, ask or allow. I put the rules in a JSON policy and the engine in a small library.
-3. **Seven controls.** Policy, deny, ask, fail safe, audit log, step cap, untrusted-output scan.
+3. **Seven controls.** Least privilege (deny), approval gates (ask), audit trail, step cap, secret redaction, untrusted input, fail safe.
 4. **Hard part: packaging.** A plugin is a folder copy. Hooks run on whatever `python3` the user has. No pip step. So I vendor the library into the plugin and check by test and CI that the copy has not drifted.
 5. **Proof.** Unit tests for each rule. End-to-end tests that copy the plugin and run the real hook commands on stock Python. A demo with 24 calls. A real Claude session whose audit log is pasted in the README.
 6. **Honesty.** No spend cap. Injection is logged, not blocked. Pattern rules are not a sandbox. Those limits are in the README and the threat model.
@@ -33,7 +33,7 @@ How to explain this project. Everything here matches the code. If a claim is not
 Claude Code's own permission rules are good for simple allow and deny lists. A hook can also fail safe, count steps, redact and write an audit log, and scan output. They work together. I did not replace the built-in rules.
 
 **2. What if the hook crashes?**
-Bad input, a broken policy, a missing vendor folder or an unwritable state folder all end in `ask`. There are tests for each. If a deny was already decided, it stays a deny.
+Two layers. Inside the script: bad input, a broken policy, a missing vendor folder or an unwritable state folder all end in `ask`, with tests for each, and a deny stays a deny. Outside the script: Claude Code lets a call through by default when a hook cannot start or times out, so `hooks.json` sets `"onFailure": "block"` (Claude Code 2.1.295 or later). A reviewer found that gap in my first version: a 60 KB command made the regex scan run past the timeout. I fixed the regexes, added a 20000-character `ask` limit and turned on `onFailure`.
 
 **3. Why ask and not deny when it breaks?**
 A guard that blocks everything when it is broken gets uninstalled. Ask keeps the human in the loop. This is "fail closed" with a way out.
@@ -68,3 +68,4 @@ My first broken-install test passed for the wrong reason: the test ran under a v
 - That it caps spend.
 - That it is a sandbox.
 - That it works on Python 3.8 (untested).
+- That it fails closed on Claude Code older than 2.1.295 (`onFailure` is ignored there).

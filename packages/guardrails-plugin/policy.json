@@ -35,14 +35,14 @@
       "id": "deny-force-push",
       "decision": "deny",
       "kind": "command",
-      "match": ["\\bgit\\s+push\\b[^\\n;&|]*(?:\\s--force(?:-with-lease)?\\b|\\s-[a-zA-Z]*f[a-zA-Z]*(?=\\s|$)|\\s\\+\\S)"],
+      "match": ["\\bgit\\s+push\\b(?:(?!\\bgit\\s+push\\b)[^\\n;&|])*(?:\\s--force(?:-with-lease)?\\b|\\s-[a-zA-Z]*f[a-zA-Z]*(?=\\s|$)|\\s\\+\\S)"],
       "reason": "Force pushes rewrite shared history and are blocked."
     },
     {
       "id": "ask-rm-recursive",
       "decision": "ask",
       "kind": "command",
-      "match": ["\\brm\\s+(?:\\S+\\s+)*?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\\b"],
+      "match": ["\\brm\\s+(?:(?!\\brm\\b)\\S+\\s+)*?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\\b"],
       "reason": "Recursive delete. Confirm the path."
     },
     {
@@ -77,7 +77,7 @@
       "id": "ask-vercel-prod",
       "decision": "ask",
       "kind": "command",
-      "match": ["\\bvercel\\b[^\\n;&|]*--prod\\b"],
+      "match": ["\\bvercel\\b(?:(?!\\bvercel\\b)[^\\n;&|])*--prod\\b"],
       "reason": "This deploys to production."
     },
     {

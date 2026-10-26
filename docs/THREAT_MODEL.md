@@ -24,7 +24,9 @@ We do not try to stop a skilled human attacker who already has a shell on your m
 | Agent rewrites shared git history | `deny-force-push` | Stops `--force`, `--force-with-lease`, `-f`, and `+branch`. |
 | Agent publishes or deploys | `ask-*` rules | A human sees the command first. |
 | Agent touches production config | `deny-prod-config` | Path based. Over-matches (any `/prod/` folder). |
-| Hook crashes or gets bad input | Fail safe (ask) | Tested with broken JSON, a missing `vendor/` folder and an unwritable state folder. |
+| Hook errors inside its own code, or gets bad input | Fail safe (ask) | Tested with broken JSON, a missing `vendor/` folder and an unwritable state folder. |
+| Hook cannot start (no `python3`), crashes outside its handler, or times out | `"onFailure": "block"` in `hooks.json` (Claude Code 2.1.295+) | On older versions the call goes ahead. Tested: no `python3` gives a non-zero exit, which Claude Code blocks. A timeout is not tested live. |
+| Huge command that makes the regex scan slow | `oversize-command` ask over 20000 characters, linear-time regexes | A long command that also holds a deny pattern gets ask, not deny. |
 | Agent loops forever | Step cap (ask after 200) | Soft cap. Counts calls, not cost. |
 | Injection in a web page | Scan and log | **Detects some, stops none.** |
 | Need to see what happened | Redacted audit log | Partial (see limits). |
@@ -61,7 +63,7 @@ In `claude -p`, nobody can answer an ask. The call does not run. This is safe, b
 
 ## Known false positives
 
-- `*/prod/*` and `*/production/*` deny any absolute path that contains those folder names.
+- `*/prod/*` and `*/production/*` deny any absolute path that contains those folder names. For Bash, every word of the command counts as a possible path, so `git commit -m "fix production/config"` is denied too.
 - The MCP rule matches names like `..._post`, so a harmless tool such as `get_post` can trigger an ask.
 - `ask-git-push` asks for every push, including safe ones. That is on purpose.
 

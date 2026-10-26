@@ -1,6 +1,7 @@
 import filecmp
 import json
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -47,10 +48,39 @@ def ev(tool, tin, step=1):
     ("mcp__gmail__list_threads", {}, "allow", "default-allow"),
     ("Read", {"file_path": "README.md"}, "allow", "default-allow"),
     ("Bash", {"command": "ls -la"}, "allow", "default-allow"),
+    ("Bash", {"command": "git push x ; git push --force"}, "deny", "deny-force-push"),
+    ("Bash", {"command": "rm a ; rm -rf b"}, "ask", "ask-rm-recursive"),
+    ("Bash", {"command": "vercel a ; vercel --prod"}, "ask", "ask-vercel-prod"),
+    ("Bash", {"command": "git commit -m 'fix production/config'"}, "deny", "deny-prod-config"),
 ])
 def test_rules(tool, tin, decision, rule):
     d = ev(tool, tin)
     assert (d.decision, d.rule) == (decision, rule)
+
+
+def test_oversize_command_asks_even_with_deny_pattern_inside():
+    d = ev("Bash", {"command": "rm " * 20000 + "; cat .env"})
+    assert (d.decision, d.rule) == ("ask", "oversize-command")
+
+
+@pytest.mark.parametrize("cmd", [
+    "rm " * 20000 + "; cat .env",
+    "git push " * 20000 + "; cat .env",
+    "vercel " * 20000 + "; cat .env",
+])
+def test_regexes_scan_in_linear_time(cmd, monkeypatch):
+    # With the size cap off, the regexes alone must stay fast (was 23 s for the rm case).
+    monkeypatch.setattr(rules, "MAX_COMMAND_CHARS", 10**9)
+    start = time.monotonic()
+    d = ev("Bash", {"command": cmd})
+    assert time.monotonic() - start < 5
+    assert d.decision == "deny"  # the .env read at the end still wins
+
+
+def test_pre_tool_use_hook_blocks_on_failure():
+    cfg = json.loads((PLUGIN / "hooks" / "hooks.json").read_text())
+    hook = cfg["hooks"]["PreToolUse"][0]["hooks"][0]
+    assert hook["onFailure"] == "block" and hook["timeout"] == 10
 
 
 def test_step_cap_asks_after_cap_but_rules_still_win():

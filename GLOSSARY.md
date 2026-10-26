@@ -36,9 +36,9 @@ Plain-English meanings, with where each one shows up in this repo.
 
 **idempotent** — Doing it twice has the same result as doing it once. Here: `make build` can run any number of times and gives the same vendored copy. The hook's decision for the same call and policy is also the same each time.
 
-**fail open** — When the guard breaks, let everything through. Easy to build, and unsafe. This plugin does not do this.
+**fail open** — When the guard breaks, let everything through. Easy to build, and unsafe. Claude Code does this by default when a hook cannot start or times out. This plugin turns it off with `"onFailure": "block"` in `hooks.json` (Claude Code 2.1.295 or later). On older versions it still fails open.
 
-**fail closed** — When the guard breaks, stop. Here the hook answers **ask** (a person decides) instead of blocking everything or allowing everything. A deny stays a deny.
+**fail closed** — When the guard breaks, stop. Here a hook error inside the script gives **ask** (a person decides). A hook that cannot start or times out is **blocked** by Claude Code. A deny stays a deny.
 
 **least privilege** — Give the agent only the access it needs. Here: secrets and production are denied. Risky actions need a yes. Everything else is allowed.
 

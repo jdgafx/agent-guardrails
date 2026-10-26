@@ -37,10 +37,17 @@ PostToolUse hook (hooks/post_tool_use.py → run_post)
 
 ## Fail-safe rule
 
-- **PreToolUse:** any exception becomes `ask` with a `guardrails-error` reason, exit code 0. If the hook crashes before Python runs (a missing `vendor/` folder), the same wrapper catches it. A deny that was already decided stays a deny, even if the log cannot be written. If the log or state cannot be written, an allow becomes an ask.
-- **PostToolUse:** an error goes to stderr and the exit code is 1. That does not block anything (the tool already ran). You see the error in the Claude Code log.
+There are two layers. They cover different failures.
 
-Why ask and not deny on error? A broken guard that blocks everything gets uninstalled. A broken guard that asks keeps a human in the loop. This is fail closed with a human exit, not fail open.
+**Layer 1, inside the script (answer: ask).**
+- **PreToolUse:** any exception becomes `ask` with a `guardrails-error` reason, exit code 0. If Python runs but the import of the vendored core fails (a missing `vendor/` folder), the wrapper in `pre_tool_use.py` catches that too. A deny that was already decided stays a deny, even if the log cannot be written. If the log or state cannot be written, an allow becomes an ask.
+- **Slow input.** Regex time grows with input size, and a timed-out hook is a failure of layer 2. So the rules never see a Bash command over 20000 characters: it gets `ask` with rule `oversize-command`. The shipped regexes are also written to scan in linear time (measured: a 60 KB `rm rm rm ...` command went from 23 s to 0.2 s).
+
+**Layer 2, in Claude Code (answer: block).** Layer 1 cannot run if Python never starts or the hook is killed. Claude Code's default for a PreToolUse hook that can't start, exits non-zero, or times out is to let the tool call go ahead. So `hooks.json` sets `"onFailure": "block"` on the PreToolUse hook (Claude Code 2.1.295 or later). Then a missing `python3`, a crash outside the wrapper, or a timeout blocks the call. On an older Claude Code the field is ignored and those cases fail open. That is a stated limit.
+
+- **PostToolUse:** an error goes to stderr and the exit code is 1. That does not block anything (the tool already ran). It has no `onFailure`. You see the error in the Claude Code log.
+
+Why ask and not deny on an internal error? A broken guard that blocks everything gets uninstalled. A broken guard that asks keeps a human in the loop. Layer 2 has no human exit: it blocks, because at that point the guard cannot even show a question.
 
 ## Decision: vendoring, not a pip install
 
@@ -82,7 +89,7 @@ Cost: two copies of the same code in git. Gain: the plugin works anywhere with z
 - **No injection blocking or rewriting.** A phrase match has false positives, and rewriting tool output changes what the model sees in ways that are hard to audit. Scan and log only.
 - **No OpenTelemetry exporter.** Field names only.
 - **No UI, no dashboard, no server.** A JSONL file you can `grep` and `jq`.
-- **No `onFailure: "block"` hook setting.** The docs describe it, but I did not verify it here. Ask-on-error already covers the case.
+- **No check of the Claude Code version.** `onFailure` needs 2.1.295 or later. The plugin does not test for it.
 - **No log cleanup or rotation.** One file per day. Delete old files yourself.
 - **No file lock for the counter.** See above.
 - **No Windows testing.** Paths are handled with forward slashes.
