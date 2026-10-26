@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Vendored core is up to date
+        run: |
+          make build
+          git diff --exit-code -- packages/guardrails-plugin/vendor
+      - name: Lint
+        run: make lint
+      - name: Tests
+        run: make test
+      - name: Demo (no API key)
+        run: make demo
+      - name: Plugin manifest check
+        run: |
+          python3 -c "import json; json.load(open('packages/guardrails-plugin/.claude-plugin/plugin.json')); json.load(open('packages/guardrails-plugin/hooks/hooks.json'))"

@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "deny-env-files",
+      "decision": "deny",
+      "kind": "path",
+      "match": [".env*", "*.env"],
+      "except": ["*.example", "*.sample", "*.template"],
+      "reason": "Environment files hold secrets. Claude may not read or touch them."
+    },
+    {
+      "id": "deny-key-files",
+      "decision": "deny",
+      "kind": "path",
+      "match": ["*.pem", "*.key", "id_rsa*", "id_ed25519*"],
+      "except": ["*.pub"],
+      "reason": "Private key files are off limits."
+    },
+    {
+      "id": "deny-credential-dirs",
+      "decision": "deny",
+      "kind": "path",
+      "match": ["*/.aws/credentials", "*/.ssh/*", "*/.kube/config", "*/.docker/config.json"],
+      "reason": "Cloud and SSH credentials are off limits."
+    },
+    {
+      "id": "deny-prod-config",
+      "decision": "deny",
+      "kind": "path",
+      "match": ["*/prod/*", "*/production/*", "*.prod.yaml", "*.prod.yml", "*.prod.json", "*.prod.tfvars"],
+      "reason": "Production config is off limits. Use a human-run process for production."
+    },
+    {
+      "id": "deny-force-push",
+      "decision": "deny",
+      "kind": "command",
+      "match": ["\\bgit\\s+push\\b(?:(?!\\bgit\\s+push\\b)[^\\n;&|])*(?:\\s--force(?:-with-lease)?\\b|\\s-[a-zA-Z]*f[a-zA-Z]*(?=\\s|$)|\\s\\+\\S)"],
+      "reason": "Force pushes rewrite shared history and are blocked."
+    },
+    {
+      "id": "ask-rm-recursive",
+      "decision": "ask",
+      "kind": "command",
+      "match": ["\\brm\\s+(?:(?!\\brm\\b)\\S+\\s+)*?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\\b"],
+      "reason": "Recursive delete. Confirm the path."
+    },
+    {
+      "id": "ask-git-push",
+      "decision": "ask",
+      "kind": "command",
+      "match": ["\\bgit\\s+push\\b"],
+      "reason": "A push publishes commits. Confirm the branch."
+    },
+    {
+      "id": "ask-git-reset-hard",
+      "decision": "ask",
+      "kind": "command",
+      "match": ["\\bgit\\s+reset\\s+--hard\\b"],
+      "reason": "A hard reset throws away uncommitted work."
+    },
+    {
+      "id": "ask-terraform-apply",
+      "decision": "ask",
+      "kind": "command",
+      "match": ["\\bterraform\\s+(?:apply|destroy)\\b"],
+      "reason": "Terraform changes real infrastructure."
+    },
+    {
+      "id": "ask-kubectl-change",
+      "decision": "ask",
+      "kind": "command",
+      "match": ["\\bkubectl\\s+(?:apply|delete)\\b"],
+      "reason": "kubectl changes a live cluster."
+    },
+    {
+      "id": "ask-vercel-prod",
+      "decision": "ask",
+      "kind": "command",
+      "match": ["\\bvercel\\b(?:(?!\\bvercel\\b)[^\\n;&|])*--prod\\b"],
+      "reason": "This deploys to production."
+    },
+    {
+      "id": "ask-publish",
+      "decision": "ask",
+      "kind": "command",
+      "match": ["\\b(?:npm|pnpm|yarn)\\s+publish\\b", "\\btwine\\s+upload\\b", "\\bcargo\\s+publish\\b", "\\buv\\s+publish\\b", "\\bgem\\s+push\\b"],
+      "reason": "Publishing a package is public and hard to undo."
+    },
+    {
+      "id": "ask-mcp-write",
+      "decision": "ask",
+      "kind": "tool",
+      "match": ["^mcp__.*_(?:send|delete|pay|charge|transfer|post)"],
+      "reason": "This tool sends, posts, deletes or moves money. Confirm."
+    }
+  ],
+  "step_cap": { "max_calls": 200 },
+  "untrusted_tools": [
+    "^WebFetch$",
+    "^WebSearch$",
+    "(?i)^mcp__.*(?:read|get|fetch|search|list|query|browse|scrape|download)"
+  ],
+  "injection_markers": [
+    { "id": "ignore-previous", "pattern": "ignore\\s+(?:all\\s+)?(?:previous|prior|above)\\s+instructions" },
+    { "id": "disregard-instructions", "pattern": "disregard\\s+(?:all\\s+)?(?:previous|prior|your)\\s+instructions" },
+    { "id": "new-instructions", "pattern": "(?:new|updated)\\s+instructions\\s*:" },
+    { "id": "role-override", "pattern": "you\\s+are\\s+now\\s+(?:a|an|in)\\b" },
+    { "id": "exfil-request", "pattern": "(?:send|email|post|upload)\\s+[^.\\n]{0,60}(?:\\.env|credentials|api[_ ]key|password|secret)" },
+    { "id": "fake-system-tag", "pattern": "<\\s*/?\\s*(?:system|assistant)\\s*>" }
+  ],
+  "audit": { "max_input_chars": 2000, "otel_field_names": true }
+}
