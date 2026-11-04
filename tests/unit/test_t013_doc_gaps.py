@@ -2,7 +2,7 @@
 "Known false positives"), run through the shipped policy.
 
 These record TODAY's behaviour, so the document's claims can be reproduced from the repo.
-When a held fix (T-006, T-007, T-008) changes a case, change the case here and the text in
+When a held fix (T-007, T-008) changes a case, change the case here and the text in
 docs/THREAT_MODEL.md together; this file exists to stop a green run with a stale document.
 """
 import json
@@ -25,34 +25,40 @@ def bash(cmd):
     return decide("Bash", {"command": cmd})
 
 
-# A flag between the program and its subcommand: no ask, no deny, for every rule of this shape.
-@pytest.mark.parametrize("cmd", [
-    G + " -C repo push --force origin main",
-    G + " -c key=value push -f",
-    G + " -C repo push origin main",
-    G + " -C repo reset --hard",
-    G + " reset HEAD~1 --hard",
-    "kubectl -n prod delete pod x",
-    "kubectl --context prod apply -f x",
-    "terraform -chdir=infra apply",
-    "npm --prefix x publish",
-    "cargo +nightly publish",
-    "uv --directory x publish",
-    "twine --verbose upload d",
-    "yarn --cwd x publish",
+# T-006: an option word between the program and its subcommand no longer hides the command.
+@pytest.mark.parametrize("cmd,want", [
+    (G + " -C repo push --force origin main", ("deny", "deny-force-push")),
+    (G + " -c key=value push -f", ("deny", "deny-force-push")),
+    (G + " -C repo push origin main", ("ask", "ask-git-push")),
+    (G + " -C repo reset --hard", ("ask", "ask-git-reset-hard")),
+    (G + " reset HEAD~1 --hard", ("ask", "ask-git-reset-hard")),
+    ("kubectl -n prod delete pod x", ("ask", "ask-kubectl-change")),
+    ("kubectl --context prod apply -f x", ("ask", "ask-kubectl-change")),
+    ("terraform -chdir=infra apply", ("ask", "ask-terraform-apply")),
+    ("npm --prefix x publish", ("ask", "ask-publish")),
+    ("cargo +nightly publish", ("ask", "ask-publish")),
+    ("uv --directory x publish", ("ask", "ask-publish")),
+    ("twine --verbose upload d", ("ask", "ask-publish")),
+    ("yarn --cwd x publish", ("ask", "ask-publish")),
 ])
-def test_option_before_subcommand_gets_no_ask(cmd):
-    assert bash(cmd) == ("allow", "default-allow")
+def test_option_before_subcommand_is_seen(cmd, want):
+    assert bash(cmd) == want
 
 
-@pytest.mark.parametrize(
-    "cmd", ["gh pr merge 1", "docker push img", "helm upgrade r c", G + " clean -fdx"])
-def test_commands_with_no_rule_are_allowed(cmd):
-    assert bash(cmd) == ("allow", "default-allow")
+# T-006: these commands had no rule; they ask now. Cases that still have none are below.
+@pytest.mark.parametrize("cmd,want", [
+    ("gh pr merge 1", "ask-gh-write"), ("gh release create v1", "ask-gh-write"),
+    ("docker push img", "ask-docker-push"), ("helm upgrade r c", "ask-helm-change"),
+    (G + " clean -fdx", "ask-git-clean"), ("find . -delete", "ask-find-delete"),
+    ("aws s3 rm s3://b/k", "ask-aws-change"),
+    ("python3 -c \"import shutil;shutil.rmtree('x')\"", "ask-python-delete")])
+def test_commands_that_had_no_rule_ask(cmd, want):
+    assert bash(cmd) == ("ask", want)
 
 
-def test_short_force_flag_glued_to_a_semicolon_only_asks():
-    assert bash(G + " push -f;echo") == ("ask", "ask-git-push")
+def test_short_force_flag_glued_to_a_semicolon_is_denied():
+    # T-006: the flag may end at ; & | ) as well as at white space.
+    assert bash(G + " push -f;echo") == ("deny", "deny-force-push")
     assert bash(G + " push --force;echo") == ("deny", "deny-force-push")
     assert bash("cd r && " + G + " push --force") == ("deny", "deny-force-push")
 
@@ -61,7 +67,6 @@ def test_short_force_flag_glued_to_a_semicolon_only_asks():
     G + ' push "--force" origin main',
     G + " push '-f'",
     G + " push origin main \\\n  --force-with-lease",
-    G + " push -f|cat",
     G + " push -f>/dev/null",
     G + " push origin main 2>&1 --force",
 ])
@@ -99,9 +104,27 @@ def test_secret_gaps_by_name():
 @pytest.mark.parametrize("cmd", [
     "grep -r API_KEY .", "cat config/*", "env", "cat ~/.npmrc", "cat ~/.pypirc",
     "cat ~/." + G + "-credentials", "cat ~/.config/gh/hosts.yml", "cat ~/.config/gcloud",
-    "gh release create v1", "aws s3 ls", "find . -delete", "rm -f x"])
+    "aws s3 ls", "rm -f x", "python3 script.py"])  # T-006: gh, find -delete moved to asks
 def test_the_rest_of_the_secret_and_no_rule_gaps_are_allowed(cmd):
     assert bash(cmd) == ("allow", "default-allow")
+
+
+# T-006: the limits THREAT_MODEL states once (forms the regexes do not read).
+@pytest.mark.parametrize("cmd", [
+    '"rm" -r x', "vercel\n--prod", "vercel deploy\n--prod", G + ' "push" -f',
+    G + " -a -b -c -d -e -f -g -h -i push -f",  # nine option words, the limit is eight
+    "kubectl patch deploy x", "gh api -X DELETE /x", G + " branch -D x",
+    "docker buildx build --push .", "aws s3 rb s3://b"])
+def test_t006_limits_are_allowed(cmd):
+    assert bash(cmd) == ("allow", "default-allow")
+
+
+@pytest.mark.parametrize("cmd", [
+    G + " push '--force'", G + ' push "-f"', 'bash -c "' + G + ' push -f"',
+    "F=--force; " + G + " push $F", "alias gp='" + G + " push -f'; gp",
+    G + " push -f>/dev/null", G + " --no-pager log --grep push"])
+def test_t006_hidden_force_spellings_ask_and_a_read_with_push_in_it_asks_too(cmd):
+    assert bash(cmd)[0] == "ask"
 
 
 def test_grep_glob_field_is_ignored_and_unlisted_mcp_tools_are_allowed():
@@ -123,17 +146,26 @@ def test_paths_are_matched_as_written_not_cleaned_up():
     assert bash("cat ~/.aws/./credentials")[0] == "allow"
 
 
-def test_mcp_rule_counts_underscores_after_the_prefix_only():
-    assert decide("mcp__my_pay__list", {}) == ("ask", "ask-mcp-write")
-    assert decide("mcp__my_sender__list", {}) == ("ask", "ask-mcp-write")
-    for tool in ("mcp__sendgrid__list", "mcp__payments__refund", "mcp__postmark__email"):
+def test_mcp_rule_reads_the_tool_part_of_the_name_not_the_server_part():
+    # T-006: the rule looks at the part after the server name; a server name no longer counts.
+    for tool in ("mcp__my_pay__list", "mcp__my_sender__list", "mcp__sendgrid__list",
+                 "mcp__payments__refund", "mcp__postmark__email"):
         assert decide(tool, {}) == ("allow", "default-allow")
 
 
 def test_mcp_name_rule():
+    # T-006: write words count at the start of a word of the tool name, in _ - and camelCase.
     assert decide("mcp__gmail__send_email", {})[0] == "ask"
-    assert decide("mcp__blog__get_post", {})[0] == "ask"
-    assert decide("mcp__x__resend", {})[0] == "allow"
+    for tool in ("mcp__x__bulkDelete", "mcp__x__email-send", "mcp__x__createPost",
+                 "mcp__x__make-payment", "mcp__x__wire-transfer"):
+        assert decide(tool, {}) == ("ask", "ask-mcp-write")
+    # reading words in front excuse the noun uses (posts, payments); send and delete never do
+    for tool in ("mcp__blog__get_post", "mcp__x__get_posts", "mcp__x__list_payments"):
+        assert decide(tool, {})[0] == "allow"
+    assert decide("mcp__x__list_deleted", {})[0] == "ask"
+    # a write word glued inside a longer word, or all lower case with no break, is not seen
+    for tool in ("mcp__x__resend", "mcp__x__createpost", "mcp__x__refund"):
+        assert decide(tool, {})[0] == "allow"
 
 
 # ---- The docs must agree with the code, not only with each other (T-013 round 2) -------------

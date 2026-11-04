@@ -32,13 +32,16 @@ NEEDLES = [
     (2, "A", "An exception in steps 1 to 3 (read the input and check the data folder, load the policy, count the step in `state/<session>.calls`) happens before any rule ran, so even `cat .env` gets `ask`, not `deny`"),
     (2, "T", "If the policy or data folder is broken, every call asks, including calls a rule would have denied."),
     # T-013 changed "allowed with no prompt" to "no ask or deny from this plugin": Claude Code's own prompts may still apply, so "no prompt" overclaimed.
-    (3, "T", "It misses options placed before `push`: `git -C repo push --force` and `git -c key=value push -f` are allowed with no ask or deny from this plugin."),
+    # T-006 built the fix: option words before the subcommand are seen, so the old "allowed with no ask or deny" sentence is replaced by what is true now.
+    (3, "T", "`git -C repo push --force`, `git -c key=value push -f`, `git --no-pager push -f` and `git --git-dir=x push -f` are denied."),
     # T-013 (EGM stage 7): "The real control" was a judgement; now "Isolation is the control ... this plugin does not provide it".
     (4, "T", "Isolation is the control against a determined injection, and this plugin does not provide it: use a container or a separate user with no access to your secrets."),
     (5, "T", "### 8. Nothing controls what leaves the machine"),
     (6, "T", "- Your secrets, as far as they sit in files with the listed names (`.env`, keys, cloud credentials)."),
     (6, "T", "credential files not on the list (`~/.netrc`, `~/.npmrc`, `~/.pypirc`, `~/.git-credentials`, `~/.config/gh/hosts.yml`, `~/.config/gcloud`)"),
-    (7, "T", "Not covered: `gh pr merge`, `gh release create`, `docker push`, `helm upgrade`, `aws ...`, `git clean -fdx`"),
+    # T-006 added rules for these; the doc now says "Now ask" and lists what is still without a rule.
+    (7, "T", "Now ask: `gh pr merge`, `gh release create` and `gh release delete`, `gh repo delete`, `docker push`"),
+    (7, "T", "Still no rule: `rm -f`, a script that deletes files (`python3 script.py`)"),
     (8, "A", "`validate()` does not enforce all of it."),
     (9, "T", "That makes four controls soft: every `ask` rule, the fail-safe `ask` on internal errors, the `oversize-command` ask"),
     (10, "A", "## How this relates to Claude Code's own controls"),
