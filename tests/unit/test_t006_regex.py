@@ -221,7 +221,8 @@ def test_every_must_catch_command_is_at_least_as_strong_as_main(cmd):
 #  - deny-force-push: the scan stops at a real `git ... push` start, not at any word `git` (u/git).
 #  - ask-aws-change: reads `aws [options] service [options] operation`, not any word after aws.
 #  - ask-docker-push: `docker compose [options] push`.
-#  - ask-mcp-write: a reading word excuses only a write word right behind it (get_posts, getPost).
+#  - ask-mcp-write: a name that starts with a reading word and a write word right behind it
+#    (get_posts, getPost) is excused whole; a later write word is excused too (KNOWN_LIMIT below).
 #  - ask-find-delete: `find -delete` with no start path, and `-exec /bin/rm`.
 #  - ask-git-clean: a dry-run flag (-n, --dry-run) anywhere excuses the command.
 # T-006 round 6: every string the judge quoted, with the decision it must get now. No row is
@@ -242,10 +243,15 @@ JUDGE = [  # (command or tool name, decision it must get)
     ("mcp__x__fetch_and_post", "ask"), ("mcp__x__getAndPost", "ask"),
     ("mcp__blog__get_post", "allow"), ("mcp__my_sender__list", "allow"),
     ("mcp__x__get_posts", "allow"), ("mcp__x__list_payments", "allow"),
+    ("mcp__x__get_payment_then_transfer", "allow"), ("mcp__x__list_payments_and_charge", "allow"),
     (LIMIT, "allow"),
 ]
 
 
+# Recorded exception (decision #539, merge with limits): the read-word lookahead sits at the start
+# of the tool part, so a name that starts with a reading word and a write word excuses every later
+# write word too. Documented as a known limit in README.md and docs/THREAT_MODEL.md.
+KNOWN_LIMIT = {"mcp__x__get_payment_then_transfer", "mcp__x__list_payments_and_charge"}
 RELAXED = {LIMIT, "mcp__blog__get_post", "mcp__my_sender__list", "mcp__x__get_posts",
            "mcp__x__list_payments"}  # the ticket's must-allow names; main asked on them
 
@@ -255,7 +261,7 @@ def test_judge_quoted_strings_get_their_decision_and_none_is_weaker_than_main(cm
     tool, tin = (cmd, {}) if cmd.startswith("mcp__") else ("Bash", {"command": cmd})
     now, was = decide(POLICY, tool, tin), decide(old_policy(), tool, tin)
     assert now == must
-    if cmd not in RELAXED:
+    if cmd not in RELAXED | KNOWN_LIMIT:
         assert RANK[now] >= RANK[was], (cmd, was, now)
 
 

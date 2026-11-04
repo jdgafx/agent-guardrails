@@ -164,7 +164,7 @@ def test_mcp_name_rule():
     for tool in ("mcp__blog__get_post", "mcp__x__get_posts", "mcp__x__list_payments"):
         assert decide(tool, {})[0] == "allow"
     assert decide("mcp__x__list_deleted", {})[0] == "ask"
-    # T-006 round 6: a reading word excuses only a write word right behind it
+    # T-006 round 6: a reading word followed by a different word (find_and_pay) does not excuse
     for tool in ("mcp__x__find_and_pay", "mcp__x__getAndPost", "mcp__x__get_user_payments",
                  "mcp__x__postal_lookup", "mcp__x__payment_status"):
         assert decide(tool, {}) == ("ask", "ask-mcp-write")
