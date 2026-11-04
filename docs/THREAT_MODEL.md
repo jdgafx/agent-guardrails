@@ -162,4 +162,4 @@ Set aside, with reasons:
 - An allowlist instead of a denylist: it blocks every command not listed, so each command the agent needs must be added first ("Other choices" in ARCHITECTURE.md).
 - Deny instead of ask on an internal error: a deny on every error would stop all work, and an ask lets a person continue ("Fail-safe rule").
 - Block or rewrite instead of scan and log for injection: a phrase match has false positives, and rewriting makes the model see text that differs from the tool's real output ("Cuts").
-- Claude Code's own `permissions.deny` and sandbox instead of this plugin: they need no Python and do not depend on a hook timeout, but they show no per-rule reason and keep no audit log; the two can be used together ("How this relates to Claude Code's own controls").
+- Claude Code's own `permissions.deny` and sandbox instead of this plugin: they need no Python and do not depend on a hook timeout, but they show no per-rule reason and are not known to keep an audit log (not checked); the two can be used together ("How this relates to Claude Code's own controls").

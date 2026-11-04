@@ -6,7 +6,7 @@ Short forms used below: **Pre** and **Post** are the two scripts, `hooks/pre_too
 
 ## Problem and goals
 
-- **Problem.** An agent that runs commands and edits files can do something destructive or expose a secret by mistake, and Claude Code keeps no per-call record of what a guard allowed, asked or denied.
+- **Problem.** An agent that runs commands and edits files can do something destructive or expose a secret by mistake, and Claude Code is not known to keep a per-call record of what a guard allowed, asked or denied (not checked).
 - **Goals.** Deny the commands and file names that `policy.json` lists, in the listed spellings. Ask a person before the commands `policy.json` lists as ask. Keep a redacted log.
 - **Non-goals.** A spend cap, injection blocking, an exporter, a UI (see "Cuts"), and protection against a determined attacker (see [THREAT_MODEL.md](THREAT_MODEL.md)).
 
@@ -209,7 +209,7 @@ Each row points to where the reasons are written.
 | Answer to an internal error | Deny | It would stop every call | "Fail-safe rule" |
 | Step counted before the rules | Count after the rules; a built-in minimum deny list | Deferred, not rejected, with no reason beyond priority recorded: T-007 for the first, no work item for the second | "Fail-safe rule" |
 | Injection | Block or rewrite | False positives, and the model would see text that differs from the tool's real output | "Cuts" |
-| Built-in controls | `permissions.deny` and the sandbox alone | No per-rule reason, no audit log; the two can be used together | "How this relates to Claude Code's own controls" |
+| Built-in controls | `permissions.deny` and the sandbox alone | No per-rule reason, and not known to keep an audit log (not checked); the two can be used together | "How this relates to Claude Code's own controls" |
 | User policy file | Merge with the shipped one; an `extends` field; a warning for a missing shipped rule | One file is the whole policy; the cost is that new shipped rules do not reach it. The `extends` field and the warning: no reason beyond priority | "Other choices" |
 | What the log records for an allowed call | A decision line for every call | One more log line for every allowed call, and a search of the day's file in place of a small memo | "Audit and state" |
 | Stale vendored copy | CI fails on untracked files under `vendor/` | A one-line change; no reason beyond priority is recorded | "Decision: vendoring" |
@@ -227,7 +227,7 @@ Each row points to where the reasons are written.
 | The agent edits the guard | None built (T-007); see limit 7 in [THREAT_MODEL.md](THREAT_MODEL.md) | "Trust boundary" |
 | Unlocked counter, state files that grow, no cleanup | None built; delete old state files by hand | "Audit and state" |
 | A new core module missing from the vendored copy | Run `git status` after `make build`; the CI check for untracked files is not built | "Decision: vendoring" |
-| A user's own policy file never gets rules added to the shipped one later | None; compare your file with the shipped one after an update | "Policy" |
+| A user's own policy file never gets rules added to the shipped one later | None; compare your file with the shipped one after an update | "Other choices" |
 | The log is partial (internal-error asks, a failed Post script, a failed call that may not reach Post) | None built; see "Audit and state" and limits of the log in [THREAT_MODEL.md](THREAT_MODEL.md) | "Audit and state" |
 | An ask may not stop a call (bypass mode, `claude -p`) | Put what must never run in `permissions.deny` as well (unverified) | "How this relates to Claude Code's own controls" |
 | Command rules apply to a tool named `Bash` only | None built; no fix written down | "Policy" |
