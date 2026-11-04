@@ -22,9 +22,9 @@ Plain-English meanings, with where each one shows up in this repo.
 
 **end-to-end test** — A test that runs the whole thing the way a user would. Here: `tests/e2e/` copies the plugin folder and runs the real hook commands from `hooks.json` with the stock `python3`.
 
-**fixture** — A fixed sample input used in tests or demos. Here: `fixtures.json` holds the 24 sample tool calls (see **tool call**) for `make demo`. The fake key is built at run time, so no key-shaped text sits in the repo.
+**fixture** — A fixed sample input used in tests or demos. Here: `fixtures.json` holds the 24 sample tool calls (see **tool call**) for `make demo`. The demo's fake key is built at run time, so the demo fixtures contain no key-shaped text.
 
-**hook** — A small program that Claude Code runs at a set moment. Here: `PreToolUse` runs before a tool, `PostToolUse` runs after. The hook reads JSON on stdin. To deny or ask it prints a JSON answer on stdout; to allow it prints nothing.
+**hook** — A small program that Claude Code runs at a set moment. Here: `PreToolUse` runs before a tool, `PostToolUse` runs after. Both hooks read JSON on stdin. PreToolUse prints a JSON answer on stdout to deny or ask, and nothing to allow; PostToolUse prints nothing.
 
 **plugin** — A folder that adds features to Claude Code. Here: `packages/guardrails-plugin`. Claude Code reads its manifest and loads its hooks.
 
@@ -38,11 +38,11 @@ Plain-English meanings, with where each one shows up in this repo.
 
 **fail open** — When the guard breaks, let everything through. Easy to build, and unsafe. Claude Code does this by default when a hook cannot start or times out. This plugin sets `"onFailure": "block"` on its PreToolUse hook in `hooks.json` to turn it off (Claude Code 2.1.295 or later; per the release notes, not tested here). On older versions it still fails open.
 
-**fail closed** — When the guard breaks, stop. Here an error inside the PreToolUse script gives **ask** (a person decides). A PreToolUse hook that cannot start or times out should be **blocked** by Claude Code (2.1.295 or later; per its release notes, not tested here), through the `onFailure` setting named under **fail open**. Blocked means the call is stopped with no question, documented to have the same effect as **deny**. A PostToolUse failure blocks nothing and writes no log line. A deny stays a deny only if the error comes after the rules ran; if the policy or data folder is broken, every call asks, even one a rule would deny.
+**fail closed** — When the guard breaks, stop. Here an error inside the PreToolUse script gives **ask** (a person decides). A PreToolUse hook that cannot start or times out should be **blocked** by Claude Code (2.1.295 or later; per its release notes, not tested here), through the `onFailure` setting named under **fail open**. Blocked means the call is stopped with no question, which stops the call like **deny**. A PostToolUse failure blocks nothing and writes no log line. A deny stays a deny only if the error comes after the rules ran; if the policy or data folder is broken, every call asks, even one a rule would deny.
 
 **least privilege** — Give the agent only the access it needs. Here the plugin only approximates this: it denies a short list (secrets, production), asks about risky actions, and allows everything else. That is a denylist, which allows anything it does not name; an allowlist denies anything it does not name.
 
-**blast radius** — How much damage one mistake can do. Here: the rules aim to stop a common or accidental wrong command from touching listed secrets, shared history or production without a person seeing it first (an ask is not a stop in bypass mode; see **bypass mode**). A command the rules do not list runs, and the agent can edit the guard, so the radius is smaller, not zero (see limits 5 and 7 in [THREAT_MODEL](docs/THREAT_MODEL.md)).
+**blast radius** — How much damage one mistake can do. Here: the rules aim to stop a common or accidental wrong command from touching listed secrets, shared history or production without a person seeing it first (an ask may not be a stop in bypass mode; see **bypass mode**). A command the rules do not list runs, and the agent can edit the guard, so the radius is smaller, not zero (see limits 5 and 7 in [THREAT_MODEL](docs/THREAT_MODEL.md)).
 
 **MCP** — Model Context Protocol: a standard way to plug extra tools into Claude Code. MCP tool names look like `mcp__<server>__<tool>`.
 
@@ -58,7 +58,7 @@ The entries below are terms specific to this plugin.
 
 **deny, ask, allow** — The three answers to a tool call. **deny**: the call does not run. **ask**: Claude Code asks you first. **allow**: the hook prints nothing and Claude Code's normal prompts apply (Claude Code's documented behaviour, not tested here). **block** is what Claude Code does when the hook itself cannot run: it stops the call, like deny.
 
-**step and step cap** — The step number of a call is how many calls the session has made so far, counting this one (every call counts). The step cap is the rule that, past step 200 in one session (200 is the default in `policy.json`; the demo uses 3), turns a call that matches no rule from allow into ask. The same call is allowed at step 200 and asks at step 201. The cap is soft: parallel calls can share a step number, and if Claude Code sends no session id all sessions share one counter (see "Limits of the log" in [THREAT_MODEL](docs/THREAT_MODEL.md)). This is a "step" of a session, not a step of CI (see **pipeline**).
+**step and step cap** — The step number of a call is how many calls the session has made so far, counting this one (every call counts). The step cap is the rule that, past step 200 in one session (200 is the default in `policy.json`; the demo uses 3), turns a call that matches no rule from allow into ask. The same call is allowed at step 200 and asks at step 201. The cap is soft: parallel calls can share a step number, and if Claude Code sends no session id all sessions share one counter (see "Audit and state" in [ARCHITECTURE](docs/ARCHITECTURE.md)). This is a "step" of a session, not a step of CI (see **pipeline**).
 
 **audit log** — The file the plugin writes, one JSON object per line (see **JSONL**), in the `audit/` folder of the data folder. It records denies and asks (not an ask caused by an internal error), and a result line for each call that ran when the Post script succeeds. See "Limits of the log" in [THREAT_MODEL](docs/THREAT_MODEL.md).
 

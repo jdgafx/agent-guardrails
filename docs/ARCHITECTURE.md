@@ -16,6 +16,7 @@ tests/                           unit, end-to-end and acceptance tests (pytest).
 .github/workflows/ci.yml         CI: vendored copy, lint, tests, demo, manifest parse.
 .claude-plugin/marketplace.json  lets /plugin marketplace add use this repo as a source.
 Makefile                         build, lint, test, demo.
+README.md, GLOSSARY.md, docs/    the documents. LICENSE: MIT.
 ```
 
 ## Modules (in guardrails-core)
@@ -35,7 +36,7 @@ Makefile                         build, lint, test, demo.
 |-------|------|
 | Rules give the expected deny, ask or allow | `test_rules` (unit) |
 | Command over 20000 characters asks | `test_oversize_command_asks_even_with_deny_pattern_inside` |
-| Three repetitive 60 KB commands finish in under 5 s with the size cap off | `test_regexes_scan_in_linear_time` (a time limit, not a proof of linear time) |
+| Three repetitive commands (60 to 180 KB) still get their deny in under 5 s with the size cap off | `test_regexes_scan_in_linear_time` (a time limit, not a proof of linear time) |
 | Step cap asks after 200; deny still wins | `test_step_cap_asks_after_cap_but_rules_still_win` |
 | Broken input, missing data folder, broken policy give ask | `test_pre_fails_to_ask_on_bad_input`, `test_pre_asks_when_data_dir_missing_or_policy_broken` (allowed command only) |
 | Missing `vendor/` still asks | `test_broken_install_still_asks` (e2e) |
@@ -94,14 +95,14 @@ Each failure has one owner and one answer. Layer 1 is the hook script itself. La
 | Vendored core missing (the import fails) | the wrapper in `pre_tool_use.py` | ask | yes |
 | Log or state cannot be written after the rules ran | Pre script | a deny stays a deny; an allow becomes an ask when the state file fails | no. `test_unwritable_state_turns_allow_into_ask` fails earlier (the counter is written by `audit.next_step`, which runs before `rules.evaluate`), so it tests the "policy cannot be loaded, data folder unset or not writable" row, not this one |
 | Bash command over 20000 characters | Pre script (rule `oversize-command`) | ask, even if it holds a deny pattern | yes |
-| `python3` missing, a crash outside the wrapper, or a timeout | Claude Code, through `"onFailure": "block"` on the PreToolUse hook (2.1.295 or later) | block. On older versions the call goes ahead | exit code only; the blocking and the timeout are not tested |
+| `python3` missing, a crash outside the wrapper, or a timeout | Claude Code, through `"onFailure": "block"` on the PreToolUse hook (2.1.295 or later) | block. On older versions the call goes ahead | exit code only (`test_no_python3_exits_non_zero_so_onfailure_block_applies`); the blocking and the timeout are not tested |
 | Error in the PostToolUse script | the Post script | message on stderr, exit 1; nothing is blocked because the tool already ran. Post has no `onFailure`. Claude Code reports a non-blocking hook error; where it shows is not tested | no |
 
-**Slow input.** Regex time grows with input size, and a timed-out hook is a failure of layer 2. Two measures, with different jobs. The size cap carries the load: the rules never see a Bash command over 20000 characters; it gets `ask` with rule `oversize-command`, so a deny pattern inside a huge command becomes an ask. The shipped regexes were also rewritten to avoid the slow case, as a second line. With the cap switched off in a test (`test_regexes_scan_in_linear_time` sets the constant `MAX_COMMAND_CHARS` in `rules.py` very high), the test runs three repetitive 60 KB inputs (`rm `, `git push `, `vercel `) and only asserts that each finishes in under 5 s. A hand measurement of the `rm rm rm ...` case gave 0.2 s (it took 23 s before the regexes were rewritten; the test comment records this). Python's `re` can backtrack, so this is a measurement on these shapes, not a proof. In normal use the cap means that case is never reached. Redaction runs on the whole tool input before the log cut, and the cap does not cover it; by hand it took 0.2 s on 5 MB of plain text and 0.1 s on 3 MB after `Bearer ` (no test). The 20000 limit is that constant in `rules.py` and cannot be set in `policy.json`. The 200-call step cap is `step_cap.max_calls` in the shipped `policy.json`. The 10-second hook timeout is set in `hooks.json`.
+**Slow input.** Regex time grows with input size, and a timed-out hook is a failure of layer 2. Two measures, with different jobs. The size cap carries the load: the rules never see a Bash command over 20000 characters; it gets `ask` with rule `oversize-command`, so a deny pattern inside a huge command becomes an ask. The shipped regexes were also rewritten to avoid the slow case, as a second line. With the cap switched off in a test (`test_regexes_scan_in_linear_time` sets the constant `MAX_COMMAND_CHARS` in `rules.py` very high), the test runs three repetitive inputs of 60 to 180 KB (`rm `, `git push `, `vercel `, each repeated 20000 times and followed by `; cat .env`) and asserts that each finishes in under 5 s with the answer still deny. A hand measurement of the `rm rm rm ...` case gave 0.2 s (it took 23 s before the regexes were rewritten; the test comment records this). Python's `re` can backtrack, so this is a measurement on these shapes, not a proof. In normal use the cap means that case is never reached. Redaction runs on the whole tool input before the log cut, and the cap does not cover it; by hand it took 0.2 s on 5 MB of plain text and 0.1 s on 3 MB after `Bearer ` (no test). The 20000 limit is that constant in `rules.py` and cannot be set in `policy.json`. The 200-call step cap is `step_cap.max_calls` in the shipped `policy.json`. The 10-second hook timeout is set in `hooks.json`.
 
 Why ask and not deny on an internal error? The choice is made so that a broken guard does not stop all work: an ask lets a person continue, while a deny on every error would stop every call. (It keeps a human in the loop only when someone can answer: not in `claude -p`, limit 6, and not in bypass mode, limit 5.) Layer 2 cannot show a prompt: at that point the guard cannot even show a question, and the setting the release note describes is `onFailure: "block"`, not an ask. The price is that a missing `python3` blocks every call until the user fixes it.
 
-Two other orders were not chosen. Counting the step after the rules would keep a deny a deny when the counter file fails. A built-in minimum deny list would apply when the policy cannot load. Neither is built; the first is part of the held work item T-007 (run the rules before the state is touched). The price today is that a full disk or a broken policy turns every call, even a would-be deny, into an ask.
+Two other orders were not chosen. Counting the step after the rules would keep a deny a deny when the counter file fails. A built-in minimum deny list would apply when the policy cannot load. Neither is built; the first is part of the open work item T-007 (an id from the project's own tracker, not in this repo; the same item that THREAT_MODEL.md names for writes to the guard files). The price today is that a full disk or a broken policy turns every call, even a would-be deny, into an ask.
 
 ## Decision: vendoring, not a pip install
 
@@ -117,7 +118,7 @@ So the plugin cannot depend on a package from the workspace. Options considered:
 | One big file written by hand | Hard to test and review as one unit. |
 | One big file generated from core and drift-checked like `vendor/` | Would work. Not chosen: it is the same copy-and-check idea with a harder file to read in a diff. |
 | A symlink or a git submodule to core | Not tried: whether a plugin install keeps a link that points outside the plugin folder was not checked. |
-| Put all the code inside the plugin folder (no separate core package, no copy) | Would work with no copy and no drift check. This is a scope decision, not a technical one: the brief for this project asks for a core package, a plugin and a demo (the acceptance test `tests/acceptance/test_t001_done.py` checks that those folders exist). The price is the two gaps below. |
+| Put all the code inside the plugin folder (no separate core package, no copy) | Would work with no copy and no drift check. This is a scope decision, not a technical one: the brief for this project (not in this repo) asks for a core package, a plugin and a demo (the acceptance test `tests/acceptance/test_t001_done.py` checks that those folders exist). The price is the two gaps below. |
 | **Vendor core into the plugin** | Chosen. `make build` copies `guardrails-core/src/guardrails_core/*.py` to `packages/guardrails-plugin/vendor/guardrails_core/`. The hook adds `vendor/` to `sys.path`. |
 
 The vendored copy is **committed**, so `claude --plugin-dir` works from a fresh clone with no build step. Two checks look for a stale copy, and each has a gap:
@@ -133,7 +134,7 @@ Claude Code has two built-in controls that overlap with this plugin. The first i
 This plugin does not replace them. What it adds is one policy file that installs as a plugin, an ask tier with readable reasons, and an audit log; Claude Code's own rules already include `permissions.ask`, so the extra value is the reasons, the single file and the log. The two can work together. Claude Code's release notes say a `permissions.deny` rule now wins over a hook that answers `ask`. The Claude Code version that made that change is not recorded here, so check the release notes before relying on it; if it holds, put the few things that must never run in `permissions.deny` and use this plugin for the ask tier and the log. This plugin does not depend on that change. Whether a plugin can ship permission settings itself has not been checked, so a user who wants `permissions.deny` must add it by hand.
 
 Other choices, in one line each:
-- Denylist, not allowlist: the default is allow, so the agent stays useful. The cost is that every command not on a list runs (see the limits in THREAT_MODEL.md).
+- Denylist, not allowlist: the default is allow, so the agent stays useful. An allowlist would stop every command not named, so the agent could do little until each command it needs was listed. The cost is that every command not on a list runs (see the limits in THREAT_MODEL.md).
 - Ask, not deny, on an internal error: explained under "Fail-safe rule".
 - One whole policy file overrides the shipped one instead of merging with it: simplest to read. The cost is that new rules in a later version do not reach a user who has their own file, and nothing warns them (the policy has no shipped-version marker). Not built: an `extends` field, or a warning when a shipped rule id is missing from the user's file.
 
@@ -145,7 +146,7 @@ Other choices, in one line each:
   - `command`: regular expressions on the Bash command. Case-sensitive. Applies only when the tool is named exactly `Bash`; a command run through any other tool gets no command rule, and its words are not checked against the path rules either (`cat .env` through such a tool is allowed; see limit 4 in [THREAT_MODEL.md](THREAT_MODEL.md)).
   - `tool`: regular expressions on the tool name. Case does not matter.
 - If several rules match, deny beats ask. Among rules of the same strength, the first one in the file is the one reported.
-- `untrusted_tools` patterns are regular expressions on the tool name and are case-sensitive.
+- `untrusted_tools` patterns are regular expressions on the tool name and are case-sensitive (the shipped MCP pattern starts with `(?i)`, so MCP names match in any case).
 - `policy.schema.json` is the JSON Schema. `validate()` does not enforce all of it. **Check your own policy against the schema until this is fixed.** `validate()` checks that `version` is 1 (JSON `true` also passes, the schema's `const: 1` would refuse it), the fields of each rule, that every regex compiles (so a bad pattern is caught at load, not at the first match), and, when `step_cap` is present, that `max_calls` is a whole number of 1 or more. It does not check:
   - that `step_cap` is present (without it there is no cap), or that `max_calls` is present (a `step_cap` object without it passes and turns the cap off);
   - that `max_input_chars` meets the schema minimum of 100 (a value of 1 passes and cuts every logged input to one character);
@@ -181,7 +182,7 @@ A file found earlier replaces the later ones completely. Rules are not merged. A
 - **No OpenTelemetry exporter.** The log uses OpenTelemetry's field names (`gen_ai.tool.name` and two more) so an exporter could read it later. Nothing is sent anywhere.
 - **No UI, no dashboard, no server.** A JSONL file you can `grep` and `jq`.
 - **No check of the Claude Code version.** `onFailure` needs 2.1.295 or later. The plugin does not test for it, so a user on an older version gets no warning that the hard fail-safe is missing.
-- **No log or state cleanup or rotation.** One log file per day, one pair of state files per session. Delete old files yourself. Left out of scope for this project, not a stated design reason.
-- **No file lock for the counter.** See above. Left out of scope for this project.
+- **No log or state cleanup or rotation.** One log file per day, one pair of state files per session. Delete old files yourself. A known gap, not a design choice.
+- **No file lock for the counter.** See above. A known gap, not a design choice.
 - **No Windows testing.** No Windows machine was used. Path rules use forward slashes and lower-case the path, so Windows paths with backslashes are not expected to match, and CI runs on Linux only.
 - **No tests on Python 3.8.** The plugin folder and core are written for Python 3.8 or newer, but I only ran 3.12 and 3.14. The workspace root and the demo need Python 3.9 or newer to run the tests and the demo.
