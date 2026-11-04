@@ -35,63 +35,112 @@
       "id": "deny-force-push",
       "decision": "deny",
       "kind": "command",
-      "match": ["\\bgit\\s+push\\b(?:(?!\\bgit\\s+push\\b)[^\\n;&|])*(?:\\s--force(?:-with-lease)?\\b|\\s-[a-zA-Z]*f[a-zA-Z]*(?=\\s|$)|\\s\\+\\S)"],
+      "match": ["\\bgit(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+push\\b(?:(?!\\bgit(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+push\\b)[^\\n;&|])*(?:\\s--force(?:-with-lease)?\\b|\\s-[a-zA-Z]*f[a-zA-Z]*(?=[\\s;&|)]|$)|\\s\\+\\S)"],
       "reason": "Force pushes rewrite shared history and are blocked."
     },
     {
       "id": "ask-rm-recursive",
       "decision": "ask",
       "kind": "command",
-      "match": ["\\brm\\s+(?:(?!\\brm\\b)\\S+\\s+)*?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\\b"],
+      "match": ["\\brm\\s+(?:(?!\\S*\\brm\\s)\\S+\\s+)*?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\\b"],
       "reason": "Recursive delete. Confirm the path."
     },
     {
       "id": "ask-git-push",
       "decision": "ask",
       "kind": "command",
-      "match": ["\\bgit\\s+push\\b"],
+      "match": ["\\bgit(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+push\\b"],
       "reason": "A push publishes commits. Confirm the branch."
     },
     {
       "id": "ask-git-reset-hard",
       "decision": "ask",
       "kind": "command",
-      "match": ["\\bgit\\s+reset\\s+--hard\\b"],
+      "match": ["\\bgit(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+reset\\b(?:(?!\\bgit\\s)[^\\n;&|])*\\s--hard\\b"],
       "reason": "A hard reset throws away uncommitted work."
     },
     {
       "id": "ask-terraform-apply",
       "decision": "ask",
       "kind": "command",
-      "match": ["\\bterraform\\s+(?:apply|destroy)\\b"],
+      "match": ["\\bterraform(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+(?:apply|destroy)\\b"],
       "reason": "Terraform changes real infrastructure."
     },
     {
       "id": "ask-kubectl-change",
       "decision": "ask",
       "kind": "command",
-      "match": ["\\bkubectl\\s+(?:apply|delete)\\b"],
+      "match": ["\\bkubectl(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+(?:apply|delete)\\b"],
       "reason": "kubectl changes a live cluster."
     },
     {
       "id": "ask-vercel-prod",
       "decision": "ask",
       "kind": "command",
-      "match": ["\\bvercel\\b(?:(?!\\bvercel\\b)[^\\n;&|])*--prod\\b"],
+      "match": ["\\bvercel\\b(?:(?!\\bvercel\\b)[^\\n;&|])*(?:--prod\\b|--target(?:=|[ \\t]+)production\\b)"],
       "reason": "This deploys to production."
     },
     {
       "id": "ask-publish",
       "decision": "ask",
       "kind": "command",
-      "match": ["\\b(?:npm|pnpm|yarn)\\s+publish\\b", "\\btwine\\s+upload\\b", "\\bcargo\\s+publish\\b", "\\buv\\s+publish\\b", "\\bgem\\s+push\\b"],
+      "match": ["\\b(?:npm|pnpm|yarn)(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+publish\\b", "\\btwine(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+upload\\b", "\\bcargo(?:[ \\t]+[-+][^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+publish\\b", "\\buv(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+publish\\b", "\\bgem(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+push\\b"],
       "reason": "Publishing a package is public and hard to undo."
+    },
+    {
+      "id": "ask-git-clean",
+      "decision": "ask",
+      "kind": "command",
+      "match": ["\\bgit(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+clean\\b(?!(?:(?!\\bgit\\s)[^\\n;&|])*\\s(?:--dry-run\\b|-[a-zA-Z]*n[a-zA-Z]*(?=[\\s;&|)]|$)))(?:(?!\\bgit\\s)[^\\n;&|])*\\s(?:--force\\b|-[a-zA-Z]*f[a-zA-Z]*(?=[\\s;&|)]|$))"],
+      "reason": "git clean -f deletes untracked files for good."
+    },
+    {
+      "id": "ask-find-delete",
+      "decision": "ask",
+      "kind": "command",
+      "match": ["\\bfind(?=\\s)(?:(?!\\bfind\\s)[^\\n;&|])*\\s-(?:delete|exec(?:dir)?[ \\t]+(?:\\S*/)?rm\\b)"],
+      "reason": "find with -delete or -exec rm deletes every file it finds."
+    },
+    {
+      "id": "ask-python-delete",
+      "decision": "ask",
+      "kind": "command",
+      "match": ["\\bpython[0-9.]*(?:[ \\t]+-[^\\s;&|]*){0,4}?[ \\t]+-c\\b(?:(?!\\bpython[0-9.]*[ \\t])[\\s\\S])*?\\b(?:rmtree|unlink|rmdir|removedirs|os\\s*\\.\\s*remove)\\b"],
+      "reason": "A python -c one-liner deletes files. Confirm the path."
+    },
+    {
+      "id": "ask-aws-change",
+      "decision": "ask",
+      "kind": "command",
+      "match": ["\\baws(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+(?:s3(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,3}\\s+(?:rm|cp|mv|sync)\\b|[a-z0-9-]+(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,3}\\s+(?:delete|put|create|update|terminate)-[a-z])"],
+      "reason": "This aws command changes or deletes cloud resources or files."
+    },
+    {
+      "id": "ask-gh-write",
+      "decision": "ask",
+      "kind": "command",
+      "match": ["\\bgh(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+(?:pr\\s+merge|release\\s+(?:create|delete)|repo\\s+delete)\\b"],
+      "reason": "gh merges, releases or deletes on GitHub, which is public and hard to undo."
+    },
+    {
+      "id": "ask-docker-push",
+      "decision": "ask",
+      "kind": "command",
+      "match": ["\\bdocker(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+(?:(?:image|manifest)\\s+|compose(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+)?push\\b"],
+      "reason": "docker push publishes an image."
+    },
+    {
+      "id": "ask-helm-change",
+      "decision": "ask",
+      "kind": "command",
+      "match": ["\\bhelm(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+(?:install|upgrade|uninstall|delete|rollback)\\b"],
+      "reason": "helm changes a live cluster."
     },
     {
       "id": "ask-mcp-write",
       "decision": "ask",
       "kind": "tool",
-      "match": ["^mcp__.*_(?:send|delete|pay|charge|transfer|post)"],
+      "match": ["^mcp__(?:(?!__).)+__(?:|.*?(?:[_-]|(?-i:(?<=[a-z0-9])(?=[A-Z]))))(?:send|delete)", "^mcp__(?:(?!__).)+__(?!(?:get|list|read|fetch|search|query|find|describe|view|show|check|count|browse|lookup)(?:[_-]|(?=(?-i:[A-Z])))(?:post|pay|charge|transfer))(?:|.*?(?:[_-]|(?-i:(?<=[a-z0-9])(?=[A-Z]))))(?:post|pay|charge|transfer)"],
       "reason": "This tool sends, posts, deletes or moves money. Confirm."
     }
   ],
