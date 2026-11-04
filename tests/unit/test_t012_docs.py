@@ -28,7 +28,8 @@ NEEDLES = [
     (1, "T", "### 7. The agent can change the guard itself"),
     (1, "T", "do not add the plugin folder, the data folder or Claude Code's settings folders to its allowed paths."),
     # T-013 reworded this passage into a numbered order of steps (the counter file is written before the rules, so a counter failure also asks).
-    (2, "A", "An exception in steps 1 to 4 happens before any rule ran, so even `cat .env` gets `ask`, not `deny`"),
+    # T-013 re-keyed this to the diagram's step numbers (the data-folder check is now part of step 1), so the counter is step 3.
+    (2, "A", "An exception in steps 1 to 3 (read the input and check the data folder, load the policy, count the step in `state/<session>.calls`) happens before any rule ran, so even `cat .env` gets `ask`, not `deny`"),
     (2, "T", "If the policy or data folder is broken, every call asks, including calls a rule would have denied."),
     (3, "T", "It misses options placed before `push`: `git -C repo push --force` and `git -c key=value push -f` are allowed with no prompt."),
     (4, "T", "The real control against a determined injection is isolation: a container or a separate user with no access to your secrets."),
@@ -64,7 +65,8 @@ NEEDLES = [
     (28, "T", "deny any path, absolute or relative, that contains those folder names (`prod/x.txt` is denied too)"),
     (29, "T", "`echo .env >> .gitignore` and `cp .env.example .env` are both denied"),
     # T-013 split "the state file" into the counter (step 4, before the rules) and the memo (step 6, after them), which the old sentence blurred.
-    (32, "A", "an allow becomes an ask, because an allowed call whose memo or log failed would otherwise go unrecorded"),
+    # T-013 dropped "or log": an allow writes no Pre log line, so only the memo can fail for it (stage 7 finding).
+    (32, "A", "an allow becomes an ask, because an allowed call whose memo failed would otherwise go unrecorded"),
     (33, "A", '4. if a Bash command is over 20000 characters: ask, rule "oversize-command", and skip the rules'),
     (34, "A", "Two measures, with different jobs. The size cap carries the load"),
     (35, "A", "`validate()` checks that a pattern compiles, not that it is fast."),
