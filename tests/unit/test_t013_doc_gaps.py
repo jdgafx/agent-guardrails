@@ -80,6 +80,20 @@ def test_secret_gaps_by_name():
     assert bash("printenv")[0] == "allow"
 
 
+@pytest.mark.parametrize("cmd", [
+    "grep -r API_KEY .", "cat config/*", "env", "cat ~/.npmrc", "cat ~/.pypirc",
+    "cat ~/." + G + "-credentials", "cat ~/.config/gh/hosts.yml", "cat ~/.config/gcloud",
+    "gh release create v1", "aws s3 ls", "find . -delete", "rm -f x"])
+def test_the_rest_of_the_secret_and_no_rule_gaps_are_allowed(cmd):
+    assert bash(cmd) == ("allow", "default-allow")
+
+
+def test_grep_glob_field_is_ignored_and_unlisted_mcp_tools_are_allowed():
+    assert decide("Grep", {"pattern": "K", "path": ".", "glob": ".env*"})[0] == "allow"
+    for tool in ("mcp__x__push_files", "mcp__x__merge_pull_request", "mcp__x__create_issue"):
+        assert decide(tool, {}) == ("allow", "default-allow")
+
+
 @pytest.mark.parametrize("tool", ["PowerShell", "Shell", "bash"])
 def test_shell_through_another_tool_name_gets_no_rule(tool):
     assert decide(tool, {"command": "cat .env"})[0] == "allow"
