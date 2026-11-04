@@ -214,6 +214,40 @@ def test_every_must_catch_command_is_at_least_as_strong_as_main(cmd):
     assert RANK[bash(cmd)] >= RANK[bash(cmd, old_policy())]
 
 
+# T-006 round 6: every string the judge quoted, with the decision it must get now. No row is
+# weaker than main's policy, except the pinned limit (a quoted option value with a space).
+LIMIT = 'git -C "my repo" push --force'
+JUDGE = [  # (command or tool name, decision it must get)
+    ("rm build/rm.log -r", "ask"), ("rm tools/rm-old -rf", "ask"),
+    ("aws lambda get-function --function-name create-order", "allow"),
+    ("aws cloudformation describe-stacks --stack-name delete-me", "allow"),
+    ("aws ec2 delete-vpc --vpc-id v", "ask"), ("aws --profile p s3api put-object --bucket b", "ask"),
+    ("docker compose -f prod.yml push", "ask"), ("docker compose push", "ask"),
+    ("git push https://h/u/git -f", "deny"), ("git clean -n -f", "allow"),
+    ("git clean -df --dry-run", "allow"), ("git clean -f -n", "allow"), ("git clean -fd", "ask"),
+    ("find -delete", "ask"), ("find . -exec /bin/rm {} +", "ask"),
+    ("find -exec /usr/bin/rm {} +", "ask"), ("find . -name rm-me", "allow"),
+    ("mcp__x__find_and_pay", "ask"), ("mcp__x__search_and_transfer", "ask"),
+    ("mcp__x__fetch_and_post", "ask"), ("mcp__x__getAndPost", "ask"),
+    ("mcp__blog__get_post", "allow"), ("mcp__my_sender__list", "allow"),
+    ("mcp__x__get_posts", "allow"), ("mcp__x__list_payments", "allow"),
+    (LIMIT, "allow"),
+]
+
+
+RELAXED = {LIMIT, "mcp__blog__get_post", "mcp__my_sender__list", "mcp__x__get_posts",
+           "mcp__x__list_payments"}  # the ticket's must-allow names; main asked on them
+
+
+@pytest.mark.parametrize("cmd,must", JUDGE)
+def test_judge_quoted_strings_get_their_decision_and_none_is_weaker_than_main(cmd, must):
+    tool, tin = (cmd, {}) if cmd.startswith("mcp__") else ("Bash", {"command": cmd})
+    now, was = decide(POLICY, tool, tin), decide(old_policy(), tool, tin)
+    assert now == must
+    if cmd not in RELAXED:
+        assert RANK[now] >= RANK[was], (cmd, was, now)
+
+
 # ---- time ---------------------------------------------------------------------------------
 N = rules.MAX_COMMAND_CHARS
 SEEDS = ["git", "git push", "git -C x push", "git -C x", "git reset", "git clean", "kubectl",
