@@ -110,7 +110,7 @@ What happened in that session (a single run, not a test):
 The rules live in `policy.json` (the shipped copy is `packages/guardrails-plugin/policy.json`; it holds the patterns and the step cap of 200). Two checks are built into the code, not into `policy.json`: `oversize-command` (the 20000-character limit is a constant in `rules.py`) and the `step-cap` ask itself (only its number, `step_cap.max_calls`, is in `policy.json`).
 
 The hook looks for a policy in this order; the first file that exists is used and the others are ignored:
-1. The file named in the `GUARDRAILS_POLICY` environment variable (set it in the environment that starts Claude Code; use an absolute path). If that path does not exist, it is skipped without a message.
+1. The file named in the `GUARDRAILS_POLICY` environment variable (set it in the environment that starts Claude Code; use an absolute path). If that path does not exist, it is skipped without a message. A file that exists but cannot be read or parsed is not skipped: every call asks.
 2. `${CLAUDE_PLUGIN_DATA}/policy.json`.
 3. The `policy.json` that ships in the plugin.
 
@@ -118,7 +118,7 @@ The hook looks for a policy in this order; the first file that exists is used an
 
 To change a rule:
 1. Copy the shipped `policy.json` to `${CLAUDE_PLUGIN_DATA}/policy.json`. The copy must be complete. Edits to the shipped file are lost on a plugin update, and under `--plugin-dir` the agent can edit it.
-2. Edit the copy. A rule has an `id`, a `decision`, a `kind` (`path`, `command` or `tool`), `match` patterns and a `reason`, and may have an `except` list that excuses matches (a way to relax a false positive from "Over-matching" below).
+2. Edit the copy. A rule has an `id`, a `decision`, a `kind` (`path`, `command` or `tool`), `match` patterns and a `reason`, and, for `path` rules only, may have an `except` list that excuses matches (a way to relax a path false positive from "Over-matching" below). On a `command` or `tool` rule `except` is ignored without a message; change its `match` pattern instead.
 3. The policy is read on every hook call, so the change takes effect at once.
 4. Check the copy against the schema (needs `uv`; replace the file name):
 
@@ -138,9 +138,9 @@ The hook itself checks only part of the schema. A policy that does not parse, or
 - **The agent can edit the guard.** No rule protects `policy.json`, the hook scripts, `vendor/`, the log or Claude Code's settings. An agent that may write files can weaken or switch off the guard. Fix not built yet (limit 7 in [THREAT_MODEL](docs/THREAT_MODEL.md)). Until then, install the plugin from the marketplace or copy it outside the project (see Install).
 - **Nothing controls what leaves the machine.** `curl`, `wget` and WebFetch can send anything the agent has read (limit 8 in [THREAT_MODEL](docs/THREAT_MODEL.md)).
 - **Secrets are protected by name, not by content.** The rules block the listed file names. They do not stop `grep -r API_KEY .`, the Grep tool, a directory path such as `~/.ssh`, `printenv`, `curl -d @.env.production`, or credential files not on the list (`~/.netrc`, `~/.npmrc`, `~/.git-credentials`). Fix not built yet.
-- **Rules match the command text.** `git -C repo push --force` and `git -C repo push` are allowed with no prompt. `kubectl -n prod delete pod x` and `terraform -chdir=infra apply` are allowed too. `gh pr merge`, `docker push`, `helm upgrade` and `git clean -fdx` have no rule. Command rules read only the tool named `Bash`. Fix not built yet: widen the regexes in `policy.json`.
+- **Rules match the command text.** `git -C repo push --force` and `git -C repo push` get no ask or deny from this plugin. `kubectl -n prod delete pod x` and `terraform -chdir=infra apply` are allowed too. `gh pr merge`, `docker push`, `helm upgrade` and `git clean -fdx` have no rule. Command rules read only the tool named `Bash`. Fix not built yet for the spellings and missing commands: widen the regexes in `policy.json` (T-006 in the project's tracker; the cases are in "Gaps in the rules" in [THREAT_MODEL](docs/THREAT_MODEL.md)). For other tool names no fix is written down.
 - **Bypass mode.** Not verified: what `ask` does when Claude Code runs with permissions bypassed. Treat deny as the only hard stop there.
-- **Over-matching.** The `*/prod/*` rule denies any path, absolute or relative, with a `prod` folder. For Bash, every word of the command is treated as a possible path, so `git commit -m "fix production/config"` is denied by `*/production/*`. The MCP write rule is a name pattern and may ask for harmless tools.
+- **Over-matching.** The `*/prod/*` rule denies any path, absolute or relative, with a `prod` folder. For Bash, every word of the command is treated as a possible path, so `git commit -m "fix production/config"` is denied by `*/production/*`. The MCP write rule is a name pattern and may ask for harmless tools; `except` does not work on it (see "Change the rules"), so narrow its `match` pattern.
 - **Needs Claude Code 2.1.295 or later for the hard fail-safe.** Per the 2.1.295 release notes (not tested here), older versions ignore `onFailure`, and a hook that cannot start or times out lets the call through. The plugin also needs `python3` on PATH. Without it, 2.1.295 and later should block every call; older versions allow them.
 - **Long commands ask.** A Bash command over 20000 characters is not checked by the rules. It always gets **ask** (rule `oversize-command`), even if it holds a deny pattern.
 - **Logs are partial.** If you decline an ask, only the `decision` line exists. Allowed calls that never ran are not logged. An ask caused by an internal error writes no log line. State files in `state/` are not cleaned up.

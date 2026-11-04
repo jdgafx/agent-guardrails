@@ -144,16 +144,17 @@ Other choices, in one line each:
 ## Policy
 
 - `policy.json` has `version` (must be `1`), `rules`, `step_cap`, `untrusted_tools`, `injection_markers` and `audit` (the log settings `max_input_chars` and `otel_field_names`).
-- Only `version` and `rules` are required at the top level. `rules` must not be empty, and rule ids must be unique. A rule has an `id`, a `decision` (`deny` or `ask`; `allow` is not a rule decision), a `kind`, `match` patterns (a non-empty list of text) and a `reason` (all required), and an optional `except` list:
+- Only `version` and `rules` are required at the top level. `rules` must not be empty, and rule ids must be unique. A rule has an `id`, a `decision` (`deny` or `ask`; `allow` is not a rule decision), a `kind`, `match` patterns (a non-empty list of text) and a `reason` (all required), and an optional `except` list that only `path` rules read:
   - `path`: glob patterns on file paths found in the tool input (`file_path`, `path`, `notebook_path`, and `pattern` for Glob). For a Bash command, on every word of the command, not only words that look like paths; words are split on any white space (spaces, tabs, line breaks) and on `; & | < > = ( ) " '` and the backtick. A glob without a `/` matches the file name only. A glob with a `/` matches the whole path (with a `/` put in front, so `*/.ssh/*` also matches `.ssh/id_rsa`). Matching ignores upper and lower case, and a leading `~` is expanded. `except` globs excuse a match.
-  - `command`: regular expressions on the Bash command, found with `re.search`, so they are not anchored. Case-sensitive. Applies only when the tool is named exactly `Bash`; a command run through any other tool gets no command rule, and its words are not checked against the path rules either (`cat .env` through such a tool is allowed; see limit 4 in [THREAT_MODEL.md](THREAT_MODEL.md)).
-  - `tool`: regular expressions on the tool name. Case does not matter.
+  - `command`: regular expressions on the Bash command, found with `re.search`, so they are not anchored. Case-sensitive. Applies only when the tool is named exactly `Bash`; a command run through any other tool gets no command rule, and its words are not checked against the path rules either (`cat .env` through such a tool is allowed; see limit 4 in [THREAT_MODEL.md](THREAT_MODEL.md)). `except` is ignored here, with no message.
+  - `tool`: regular expressions on the tool name. Case does not matter. `except` is ignored here too.
 - If several rules match, deny beats ask. Among rules of the same strength, the first one in the file is the one reported.
 - `untrusted_tools` patterns are regular expressions on the tool name and are case-sensitive (the shipped MCP pattern starts with `(?i)`, so MCP names match in any case).
 - `policy.schema.json` is the JSON Schema. `validate()` does not enforce all of it. **Check your own policy against the schema until this is fixed.** `validate()` checks that `version` is 1 (JSON `true` also passes, the schema's `const: 1` would refuse it), the fields of each rule, that every regex compiles (so a bad pattern is caught at load, not at the first match), and, when `step_cap` is present, that `max_calls` is a whole number of 1 or more. It does not check:
   - that `step_cap` is present (without it there is no cap), or that `max_calls` is present (a `step_cap` object without it passes and turns the cap off);
   - that `max_input_chars` meets the schema minimum of 100 (a value of 1 passes and cuts every logged input to one character);
   - that `except` is a list (a text value such as `"*.example"` passes and then switches the rule off);
+  - that `except` is on a `path` rule (on a `command` or `tool` rule it passes and does nothing);
   - that `audit` values have the right type (a text `max_input_chars` makes the log write fail);
   - that there are no unknown keys (a typo such as `step-cap` is ignored).
 - `validate()` checks that a pattern compiles, not that it is fast. A pattern you add can be slow enough to hit the 10-second hook timeout. On Claude Code 2.1.295 or later the call should then be blocked (layer 2, untested); on older versions it runs unchecked.
@@ -163,7 +164,7 @@ Other choices, in one line each:
 The guard trusts every file it is made of and does not protect any of them. That is the policy (`policy.json`, in the data folder and in the plugin folder), the state files (`state/*.calls`, `state/*.decisions`), the log (`audit/*.jsonl`), and the files that make the guard run: the hook scripts, the `vendor/` copy of the engine, `hooks/hooks.json` and Claude Code's own settings files. The agent can write to all of them. In `claude --plugin-dir` mode the plugin folder is inside the project the agent works in. The guard cannot tell a policy the user wrote from one the agent wrote. See limit 7 in THREAT_MODEL.md.
 
 Policy lookup, in order; the first file that exists wins and the others are ignored:
-1. The file named by the `GUARDRAILS_POLICY` environment variable. If that path does not exist, it is skipped without a message. A directory or an unreadable file is skipped the same way.
+1. The file named by the `GUARDRAILS_POLICY` environment variable. If that path does not exist, it is skipped without a message. A folder is skipped the same way (only a regular file is picked). A file that exists but cannot be read, or is not valid JSON, is not skipped: it is picked, it fails to load, and every call gets `ask`. The same holds for each of the three files below.
 2. `${CLAUDE_PLUGIN_DATA}/policy.json`. It survives plugin updates.
 3. The `policy.json` in the plugin folder.
 

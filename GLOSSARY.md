@@ -52,7 +52,7 @@ The entries below are terms specific to this plugin.
 
 **tool call** — One thing Claude does through a tool: read a file, run a shell command, fetch a page. Claude Code gives the hook the tool's name and input as JSON before the call, and the result after it.
 
-**rule** — One entry in `policy.json`: an `id`, a `kind` (path, command or tool name), a decision (deny or ask), what to match, a reason, and an optional `except` list of matches to excuse (it lets `.env.example` through). Rule ids: `deny-env-files`, `ask-git-push`. Two checks are built into the code and are not entries in `policy.json`: `oversize-command` and the `step-cap` ask.
+**rule** — One entry in `policy.json`: an `id`, a `kind` (path, command or tool name), a decision (deny or ask), what to match, a reason, and, on path rules only, an optional `except` list of matches to excuse (it lets `.env.example` through; command and tool rules ignore it). Rule ids: `deny-env-files`, `ask-git-push`. Two checks are built into the code and are not entries in `policy.json`: `oversize-command` and the `step-cap` ask.
 
 **policy** — The set of rules plus the settings around them (`version`, the step cap, which tools count as untrusted, the injection phrases, the log settings), all in `policy.json`. `policy.schema.json` describes it. The first policy file found is used whole; see "Change the rules" in the README.
 

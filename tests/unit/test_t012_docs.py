@@ -65,7 +65,7 @@ NEEDLES = [
     (27, "T", "- An allowed call gets no line when it starts."),
     (28, "T", "deny any path, absolute or relative, that contains those folder names (`prod/x.txt` is denied too)"),
     (29, "T", "`echo .env >> .gitignore` and `cp .env.example .env` are both denied"),
-    # T-013 split "the state file" into the counter (step 4, before the rules) and the memo (step 6, after them), which the old sentence blurred.
+    # T-013 split "the state file" into the counter (step 3, before the rules) and the memo (step 7, after them), which the old sentence blurred.
     # T-013 dropped "or log": an allow writes no Pre log line, so only the memo can fail for it (stage 7 finding).
     (32, "A", "an allow becomes an ask, because an allowed call whose memo failed would otherwise go unrecorded"),
     (33, "A", '4. if a Bash command is over 20000 characters: ask, rule "oversize-command", and skip the rules'),
