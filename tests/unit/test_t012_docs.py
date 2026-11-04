@@ -31,7 +31,8 @@ NEEDLES = [
     # T-013 re-keyed this to the diagram's step numbers (the data-folder check is now part of step 1), so the counter is step 3.
     (2, "A", "An exception in steps 1 to 3 (read the input and check the data folder, load the policy, count the step in `state/<session>.calls`) happens before any rule ran, so even `cat .env` gets `ask`, not `deny`"),
     (2, "T", "If the policy or data folder is broken, every call asks, including calls a rule would have denied."),
-    (3, "T", "It misses options placed before `push`: `git -C repo push --force` and `git -c key=value push -f` are allowed with no prompt."),
+    # T-013 changed "allowed with no prompt" to "no ask or deny from this plugin": Claude Code's own prompts may still apply, so "no prompt" overclaimed.
+    (3, "T", "It misses options placed before `push`: `git -C repo push --force` and `git -c key=value push -f` are allowed with no ask or deny from this plugin."),
     (4, "T", "The real control against a determined injection is isolation: a container or a separate user with no access to your secrets."),
     (5, "T", "### 8. Nothing controls what leaves the machine"),
     (6, "T", "- Your secrets, as far as they sit in files with the listed names (`.env`, keys, cloud credentials)."),
@@ -88,7 +89,8 @@ NEEDLES = [
     (50, "T", "This plugin does not try to stop a skilled human attacker"),
     (50, "T", "## What it protects"),
     (50, "T", "## Who or what to worry about"),
-    (50, "T", "Nobody has tested here"),
+    # T-013: "Nobody has tested" claimed more than the repo can show; it now says what is true (no test here covers it).
+    (50, "T", "No test in this repository covers what an `ask` answer does in that mode"),
     (51, "A", "Claude Code runs one hook before a tool call (the `PreToolUse` event)"),
     (51, "A", "- **No OpenTelemetry exporter.** The log uses OpenTelemetry's field names"),
 ]
