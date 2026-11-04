@@ -33,7 +33,7 @@ README.md, GLOSSARY.md, docs/    the documents. LICENSE: MIT.
 
 ## What the tests cover
 
-`tests/unit/test_t012_docs.py` pins many sentences of this document and of THREAT_MODEL.md and a list of removed wording, so an edit to either can fail `make test` until the test is changed with it. The e2e and acceptance tests run the hooks with `PATH=/usr/bin:/bin` (the stock `python3`). The demo runner (`guardrails_demo/runner.py`) copies the shipped policy into a temporary data folder with `step_cap.max_calls` set to 3, builds its one fake key at run time, uses `sys.executable` to run the real hook scripts, and exits 1 if any fixture decision differs (`GUARDRAILS_PLUGIN_DIR` overrides the plugin folder).
+`tests/unit/test_t012_docs.py` pins many sentences of this document and of THREAT_MODEL.md and a list of removed wording. `tests/unit/test_t013_doc_gaps.py` runs the rule gaps named in THREAT_MODEL.md through the shipped policy and pins a few sentences in README.md, GLOSSARY.md and both docs. An edit to any of the four docs can fail `make test` until the matching test is changed with it. The e2e and acceptance tests run the hooks with `PATH=/usr/bin:/bin` (the stock `python3`). The demo runner (`guardrails_demo/runner.py`) copies the shipped policy into a temporary data folder with `step_cap.max_calls` set to 3, builds its one fake key at run time, uses `sys.executable` to run the real hook scripts, and exits 1 if any fixture decision differs (`GUARDRAILS_PLUGIN_DIR` overrides the plugin folder).
 
 | Claim | Test |
 |-------|------|
@@ -164,7 +164,7 @@ Other choices, in one line each:
 The guard trusts every file it is made of and does not protect any of them. That is the policy (`policy.json`, in the data folder and in the plugin folder), the state files (`state/*.calls`, `state/*.decisions`), the log (`audit/*.jsonl`), and the files that make the guard run: the hook scripts, the `vendor/` copy of the engine, `hooks/hooks.json` and Claude Code's own settings files. The agent can write to all of them. In `claude --plugin-dir` mode the plugin folder is inside the project the agent works in. The guard cannot tell a policy the user wrote from one the agent wrote. See limit 7 in THREAT_MODEL.md.
 
 Policy lookup, in order; the first file that exists wins and the others are ignored:
-1. The file named by the `GUARDRAILS_POLICY` environment variable. If that path does not exist, it is skipped without a message. A folder is skipped the same way (only a regular file is picked). A file that exists but cannot be read, or is not valid JSON, is not skipped: it is picked, it fails to load, and every call gets `ask`. The same holds for each of the three files below.
+1. The file named by the `GUARDRAILS_POLICY` environment variable. If that path does not exist, it is skipped without a message. A folder is skipped the same way (only a regular file is picked). A file that exists but cannot be read, or is not valid JSON, is not skipped: it is picked, it fails to load, and every call gets `ask`. The same holds for each of the two files below.
 2. `${CLAUDE_PLUGIN_DATA}/policy.json`. It survives plugin updates.
 3. The `policy.json` in the plugin folder.
 
