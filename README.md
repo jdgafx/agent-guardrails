@@ -126,6 +126,6 @@ make build    # copy packages/guardrails-core into the plugin's vendor/ folder
 
 Needs `uv` (https://docs.astral.sh/uv/). Run `make build` after you edit core, and commit the result. A test fails if the copy drifts.
 
-More: [ARCHITECTURE](docs/ARCHITECTURE.md) · [THREAT_MODEL](docs/THREAT_MODEL.md) · [GLOSSARY](GLOSSARY.md) · [INTERVIEW_GUIDE](INTERVIEW_GUIDE.md)
+More: [ARCHITECTURE](docs/ARCHITECTURE.md) · [THREAT_MODEL](docs/THREAT_MODEL.md) · [GLOSSARY](GLOSSARY.md)
 
 License: MIT.
