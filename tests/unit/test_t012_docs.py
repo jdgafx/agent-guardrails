@@ -1,3 +1,4 @@
+# ruff: noqa: E501  (the needles quote the docs, so long lines are the point)
 """T-012: the two design docs carry every PROPOSE FIX from the T-011 review.
 
 Each entry is (issue number, doc, text that must be in the doc). The texts come from the
