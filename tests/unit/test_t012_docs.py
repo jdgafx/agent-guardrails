@@ -27,10 +27,14 @@ NEEDLES = [
     (1, "T", "| Agent edits the guard's rules, counter, log, scripts or Claude Code settings | None yet | Not covered. See limit 7. |"),
     (1, "T", "### 7. The agent can change the guard itself"),
     (1, "T", "do not add the plugin folder, the data folder or Claude Code's settings folders to its allowed paths."),
-    (2, "A", "If the first part fails (the data folder is not set or not writable, or `policy.json` is broken), no rule has run yet, so even `cat .env` gets `ask`, not `deny`."),
+    # T-013 reworded this passage into a numbered order of steps (the counter file is written before the rules, so a counter failure also asks).
+    # T-013 re-keyed this to the diagram's step numbers (the data-folder check is now part of step 1), so the counter is step 3.
+    (2, "A", "An exception in steps 1 to 3 (read the input and check the data folder, load the policy, count the step in `state/<session>.calls`) happens before any rule ran, so even `cat .env` gets `ask`, not `deny`"),
     (2, "T", "If the policy or data folder is broken, every call asks, including calls a rule would have denied."),
-    (3, "T", "It misses options placed before `push`: `git -C repo push --force` and `git -c key=value push -f` are allowed with no prompt."),
-    (4, "T", "The real control against a determined injection is isolation: a container or a separate user with no access to your secrets."),
+    # T-013 changed "allowed with no prompt" to "no ask or deny from this plugin": Claude Code's own prompts may still apply, so "no prompt" overclaimed.
+    (3, "T", "It misses options placed before `push`: `git -C repo push --force` and `git -c key=value push -f` are allowed with no ask or deny from this plugin."),
+    # T-013 (EGM stage 7): "The real control" was a judgement; now "Isolation is the control ... this plugin does not provide it".
+    (4, "T", "Isolation is the control against a determined injection, and this plugin does not provide it: use a container or a separate user with no access to your secrets."),
     (5, "T", "### 8. Nothing controls what leaves the machine"),
     (6, "T", "- Your secrets, as far as they sit in files with the listed names (`.env`, keys, cloud credentials)."),
     (6, "T", "credential files not on the list (`~/.netrc`, `~/.npmrc`, `~/.pypirc`, `~/.git-credentials`, `~/.config/gh/hosts.yml`, `~/.config/gcloud`)"),
@@ -41,7 +45,7 @@ NEEDLES = [
     (11, "A", "## Trust boundary"),
     (11, "A", "Policy lookup, in order; the first file that exists wins and the others are ignored:"),
     (11, "A", "2. load policy: the file named by the GUARDRAILS_POLICY environment variable"),
-    (12, "A", "**Hook input and output.**"),
+    (12, "A", "### Hook input and output"),  # T-013: was a bold run-in label, now a heading so it can be linked
     (13, "A", "(so `a/b` and `a_b` share files)"),
     (14, "A", "Known limit: if Claude Code sends no `session_id`, every call counts in one shared file"),
     (15, "A", "Among rules of the same strength, the first one in the file is the one reported."),
@@ -52,7 +56,8 @@ NEEDLES = [
     (19, "A", "so a new core module whose vendored copy was never added to git passes CI."),
     (20, "T", "- An `ask` caused by an internal error (reason starts with `[guardrails-error]`) writes no log line."),
     (21, "T", "## How it works"),
-    (22, "T", "Limits 7, 8 and 9 matter most."),
+    # T-013 (EGM stage 7): the ranking had no stated criterion; the text now gives only when each limit applies.
+    (22, "T", "Limit 9 applies only to Claude Code older than 2.1.295 (check with `claude --version`)."),
     (22, "T", "### 9. Old Claude Code versions fail open"),
     (23, "A", "| Failure | Who catches it | Answer | Tested |"),
     (24, "A", "Source: the Claude Code 2.1.295 release note"),
@@ -62,7 +67,9 @@ NEEDLES = [
     (27, "T", "- An allowed call gets no line when it starts."),
     (28, "T", "deny any path, absolute or relative, that contains those folder names (`prod/x.txt` is denied too)"),
     (29, "T", "`echo .env >> .gitignore` and `cp .env.example .env` are both denied"),
-    (32, "A", "If the state file cannot be written, an allow becomes an ask (an allowed call writes no log line)."),
+    # T-013 split "the state file" into the counter (step 3, before the rules) and the memo (step 7, after them), which the old sentence blurred.
+    # T-013 dropped "or log": an allow writes no Pre log line, so only the memo can fail for it (stage 7 finding).
+    (32, "A", "an allow becomes an ask, because an allowed call whose memo failed would otherwise go unrecorded"),
     (33, "A", '4. if a Bash command is over 20000 characters: ask, rule "oversize-command", and skip the rules'),
     (34, "A", "Two measures, with different jobs. The size cap carries the load"),
     (35, "A", "`validate()` checks that a pattern compiles, not that it is fast."),
@@ -84,7 +91,8 @@ NEEDLES = [
     (50, "T", "This plugin does not try to stop a skilled human attacker"),
     (50, "T", "## What it protects"),
     (50, "T", "## Who or what to worry about"),
-    (50, "T", "Nobody has tested here"),
+    # T-013: "Nobody has tested" claimed more than the repo can show; it now says what is true (no test here covers it).
+    (50, "T", "No test in this repository covers what an `ask` answer does in that mode"),
     (51, "A", "Claude Code runs one hook before a tool call (the `PreToolUse` event)"),
     (51, "A", "- **No OpenTelemetry exporter.** The log uses OpenTelemetry's field names"),
 ]
