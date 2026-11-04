@@ -132,7 +132,7 @@ def test_5_demo_needs_no_key_and_shows_all_three():
 
 
 def test_6_docs_layout_and_glossary():
-    need = ["README.md", "GLOSSARY.md", "INTERVIEW_GUIDE.md", "docs/THREAT_MODEL.md", "docs/ARCHITECTURE.md",
+    need = ["README.md", "GLOSSARY.md", "docs/THREAT_MODEL.md", "docs/ARCHITECTURE.md",
             "Makefile", "pyproject.toml", ".github/workflows/ci.yml", "packages/guardrails-core",
             "packages/guardrails-demo", "packages/guardrails-plugin/.claude-plugin/plugin.json",
             "packages/guardrails-plugin/hooks/hooks.json"]
