@@ -45,7 +45,7 @@ NEEDLES = [
     (11, "A", "## Trust boundary"),
     (11, "A", "Policy lookup, in order; the first file that exists wins and the others are ignored:"),
     (11, "A", "2. load policy: the file named by the GUARDRAILS_POLICY environment variable"),
-    (12, "A", "**Hook input and output.**"),
+    (12, "A", "### Hook input and output"),  # T-013: was a bold run-in label, now a heading so it can be linked
     (13, "A", "(so `a/b` and `a_b` share files)"),
     (14, "A", "Known limit: if Claude Code sends no `session_id`, every call counts in one shared file"),
     (15, "A", "Among rules of the same strength, the first one in the file is the one reported."),
@@ -57,7 +57,7 @@ NEEDLES = [
     (20, "T", "- An `ask` caused by an internal error (reason starts with `[guardrails-error]`) writes no log line."),
     (21, "T", "## How it works"),
     # T-013 (EGM stage 7): the ranking had no stated criterion; the text now gives only when each limit applies.
-    (22, "T", "Limits 7 and 8 apply to any setup. Limit 9 applies only to Claude Code older than 2.1.295"),
+    (22, "T", "Limit 9 applies only to Claude Code older than 2.1.295 (check with `claude --version`)."),
     (22, "T", "### 9. Old Claude Code versions fail open"),
     (23, "A", "| Failure | Who catches it | Answer | Tested |"),
     (24, "A", "Source: the Claude Code 2.1.295 release note"),

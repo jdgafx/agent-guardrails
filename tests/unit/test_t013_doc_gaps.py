@@ -116,6 +116,20 @@ def test_shell_through_another_tool_name_gets_no_rule(tool):
     assert decide(tool, {"command": G + " push --force"})[0] == "allow"
 
 
+def test_paths_are_matched_as_written_not_cleaned_up():
+    assert decide("Read", {"file_path": "~/.aws/credentials"})[0] == "deny"
+    assert decide("Read", {"file_path": "~/.aws/./credentials"})[0] == "allow"
+    assert decide("Read", {"file_path": "~/.kube//config"})[0] == "allow"
+    assert bash("cat ~/.aws/./credentials")[0] == "allow"
+
+
+def test_mcp_rule_counts_underscores_after_the_prefix_only():
+    assert decide("mcp__my_pay__list", {}) == ("ask", "ask-mcp-write")
+    assert decide("mcp__my_sender__list", {}) == ("ask", "ask-mcp-write")
+    for tool in ("mcp__sendgrid__list", "mcp__payments__refund", "mcp__postmark__email"):
+        assert decide(tool, {}) == ("allow", "default-allow")
+
+
 def test_mcp_name_rule():
     assert decide("mcp__gmail__send_email", {})[0] == "ask"
     assert decide("mcp__blog__get_post", {})[0] == "ask"
