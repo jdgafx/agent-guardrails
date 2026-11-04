@@ -114,7 +114,8 @@ def test_the_rest_of_the_secret_and_no_rule_gaps_are_allowed(cmd):
     '"rm" -r x', "vercel\n--prod", "vercel deploy\n--prod", G + ' "push" -f',
     G + " -a -b -c -d -e -f -g -h -i push -f",  # nine option words, the limit is eight
     "kubectl patch deploy x", "gh api -X DELETE /x", G + " branch -D x",
-    "docker buildx build --push .", "aws s3 rb s3://b"])
+    "docker buildx build --push .", "aws s3 rb s3://b",
+    G + ' -C "my repo" push --force', G + " -C my\\ repo push --force"])  # T-006 round 6
 def test_t006_limits_are_allowed(cmd):
     assert bash(cmd) == ("allow", "default-allow")
 
@@ -163,6 +164,10 @@ def test_mcp_name_rule():
     for tool in ("mcp__blog__get_post", "mcp__x__get_posts", "mcp__x__list_payments"):
         assert decide(tool, {})[0] == "allow"
     assert decide("mcp__x__list_deleted", {})[0] == "ask"
+    # T-006 round 6: a reading word excuses only a write word right behind it
+    for tool in ("mcp__x__find_and_pay", "mcp__x__getAndPost", "mcp__x__get_user_payments",
+                 "mcp__x__postal_lookup", "mcp__x__payment_status"):
+        assert decide(tool, {}) == ("ask", "ask-mcp-write")
     # a write word glued inside a longer word, or all lower case with no break, is not seen
     for tool in ("mcp__x__resend", "mcp__x__createpost", "mcp__x__refund"):
         assert decide(tool, {})[0] == "allow"

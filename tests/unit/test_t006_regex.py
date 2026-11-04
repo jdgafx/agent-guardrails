@@ -214,6 +214,16 @@ def test_every_must_catch_command_is_at_least_as_strong_as_main(cmd):
     assert RANK[bash(cmd)] >= RANK[bash(cmd, old_policy())]
 
 
+# T-006 round 6 policy.json edits (JSON takes no comments and the schema allows no extra key, so
+# they are named here; each is pinned by a row below):
+#  - ask-rm-recursive: the token scan stops at a token that ends in `rm` (a real new start), not at
+#    any token that holds `rm` (build/rm.log, rm-old).
+#  - deny-force-push: the scan stops at a real `git ... push` start, not at any word `git` (u/git).
+#  - ask-aws-change: reads `aws [options] service [options] operation`, not any word after aws.
+#  - ask-docker-push: `docker compose [options] push`.
+#  - ask-mcp-write: a reading word excuses only a write word right behind it (get_posts, getPost).
+#  - ask-find-delete: `find -delete` with no start path, and `-exec /bin/rm`.
+#  - ask-git-clean: a dry-run flag (-n, --dry-run) anywhere excuses the command.
 # T-006 round 6: every string the judge quoted, with the decision it must get now. No row is
 # weaker than main's policy, except the pinned limit (a quoted option value with a space).
 LIMIT = 'git -C "my repo" push --force'
@@ -221,7 +231,8 @@ JUDGE = [  # (command or tool name, decision it must get)
     ("rm build/rm.log -r", "ask"), ("rm tools/rm-old -rf", "ask"),
     ("aws lambda get-function --function-name create-order", "allow"),
     ("aws cloudformation describe-stacks --stack-name delete-me", "allow"),
-    ("aws ec2 delete-vpc --vpc-id v", "ask"), ("aws --profile p s3api put-object --bucket b", "ask"),
+    ("aws ec2 delete-vpc --vpc-id v", "ask"),
+    ("aws --profile p s3api put-object --bucket b", "ask"), ("aws s3 --region x rm s3://b", "ask"),
     ("docker compose -f prod.yml push", "ask"), ("docker compose push", "ask"),
     ("git push https://h/u/git -f", "deny"), ("git clean -n -f", "allow"),
     ("git clean -df --dry-run", "allow"), ("git clean -f -n", "allow"), ("git clean -fd", "ask"),
@@ -267,6 +278,11 @@ def worst_inputs():
         yield ch * N
     yield "a" * (N - 1) + " "
     yield " " * N
+    # T-006 round 6: a start inside a path word (a/rm, u/git, x/find) must not make a rescan
+    for unit in ("a/rm ", "rm a/rm ", "u/git ", "git push u/git ", "git -a push u/git -a ",
+                 "x/find ", "find x/find ", "git clean x/git ", "git clean -f x/git ", "aws -a ",
+                 "aws -a b c ", "docker compose -a ", "mcp__x__get_", "git push git "):
+        yield (unit * (N // len(unit) + 1))[:N]
     yield ("git " + "-a " * (N // 3))[:N]
     yield ("git " + "-a b " * (N // 5) + "x")[:N]
 

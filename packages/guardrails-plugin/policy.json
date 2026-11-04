@@ -35,14 +35,14 @@
       "id": "deny-force-push",
       "decision": "deny",
       "kind": "command",
-      "match": ["\\bgit(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+push\\b(?:(?!\\bgit\\s)[^\\n;&|])*(?:\\s--force(?:-with-lease)?\\b|\\s-[a-zA-Z]*f[a-zA-Z]*(?=[\\s;&|)]|$)|\\s\\+\\S)"],
+      "match": ["\\bgit(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+push\\b(?:(?!\\bgit(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+push\\b)[^\\n;&|])*(?:\\s--force(?:-with-lease)?\\b|\\s-[a-zA-Z]*f[a-zA-Z]*(?=[\\s;&|)]|$)|\\s\\+\\S)"],
       "reason": "Force pushes rewrite shared history and are blocked."
     },
     {
       "id": "ask-rm-recursive",
       "decision": "ask",
       "kind": "command",
-      "match": ["\\brm\\s+(?:(?!\\S*\\brm\\b)\\S+\\s+)*?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\\b"],
+      "match": ["\\brm\\s+(?:(?!\\S*\\brm\\s)\\S+\\s+)*?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\\b"],
       "reason": "Recursive delete. Confirm the path."
     },
     {
@@ -91,14 +91,14 @@
       "id": "ask-git-clean",
       "decision": "ask",
       "kind": "command",
-      "match": ["\\bgit(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+clean\\b(?:(?!\\bgit\\s)[^\\n;&|])*\\s(?:--force\\b|-(?![a-zA-Z]*n)[a-zA-Z]*f[a-zA-Z]*(?=[\\s;&|)]|$))"],
+      "match": ["\\bgit(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+clean\\b(?!(?:(?!\\bgit\\s)[^\\n;&|])*\\s(?:--dry-run\\b|-[a-zA-Z]*n[a-zA-Z]*(?=[\\s;&|)]|$)))(?:(?!\\bgit\\s)[^\\n;&|])*\\s(?:--force\\b|-[a-zA-Z]*f[a-zA-Z]*(?=[\\s;&|)]|$))"],
       "reason": "git clean -f deletes untracked files for good."
     },
     {
       "id": "ask-find-delete",
       "decision": "ask",
       "kind": "command",
-      "match": ["\\bfind\\s(?:(?!\\bfind\\s)[^\\n;&|])*\\s-(?:delete|exec(?:dir)?[ \\t]+rm)\\b"],
+      "match": ["\\bfind(?=\\s)(?:(?!\\bfind\\s)[^\\n;&|])*\\s-(?:delete|exec(?:dir)?[ \\t]+(?:\\S*/)?rm\\b)"],
       "reason": "find with -delete or -exec rm deletes every file it finds."
     },
     {
@@ -112,7 +112,7 @@
       "id": "ask-aws-change",
       "decision": "ask",
       "kind": "command",
-      "match": ["\\baws\\s(?:(?!\\baws\\s)[^\\n;&|])*?(?<=\\s)(?:s3\\s+(?:rm|cp|mv|sync)\\b|(?:delete|put|create|update|terminate)-[a-z])"],
+      "match": ["\\baws(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+(?:s3(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,3}\\s+(?:rm|cp|mv|sync)\\b|[a-z0-9-]+(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,3}\\s+(?:delete|put|create|update|terminate)-[a-z])"],
       "reason": "This aws command changes or deletes cloud resources or files."
     },
     {
@@ -126,7 +126,7 @@
       "id": "ask-docker-push",
       "decision": "ask",
       "kind": "command",
-      "match": ["\\bdocker(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+(?:(?:image|manifest|compose)\\s+)?push\\b"],
+      "match": ["\\bdocker(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+(?:(?:image|manifest)\\s+|compose(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+)?push\\b"],
       "reason": "docker push publishes an image."
     },
     {
@@ -140,7 +140,7 @@
       "id": "ask-mcp-write",
       "decision": "ask",
       "kind": "tool",
-      "match": ["^mcp__(?:(?!__).)+__(?:|.*?(?:[_-]|(?-i:(?<=[a-z0-9])(?=[A-Z]))))(?:send|delete)", "^mcp__(?:(?!__).)+__(?!(?:get|list|read|fetch|search|query|find|describe|view|show|check|count|browse|lookup)(?:[_-]|(?-i:[A-Z])|$))(?:|.*?(?:[_-]|(?-i:(?<=[a-z0-9])(?=[A-Z]))))(?:post|pay|charge|transfer)"],
+      "match": ["^mcp__(?:(?!__).)+__(?:|.*?(?:[_-]|(?-i:(?<=[a-z0-9])(?=[A-Z]))))(?:send|delete)", "^mcp__(?:(?!__).)+__(?!(?:get|list|read|fetch|search|query|find|describe|view|show|check|count|browse|lookup)(?:[_-]|(?=(?-i:[A-Z])))(?:post|pay|charge|transfer))(?:|.*?(?:[_-]|(?-i:(?<=[a-z0-9])(?=[A-Z]))))(?:post|pay|charge|transfer)"],
       "reason": "This tool sends, posts, deletes or moves money. Confirm."
     }
   ],
