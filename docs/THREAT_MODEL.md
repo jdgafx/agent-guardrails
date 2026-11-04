@@ -155,8 +155,11 @@ The design assumes the agent is useful but fallible. Deny the listed things that
 
 ## Alternatives considered
 
-Other designs were weighed in [ARCHITECTURE.md](ARCHITECTURE.md) ("Alternatives at a glance"). Two are deferred, not rejected: counting the step after the rules (T-007) and a built-in minimum deny list (no work item); the reason is priority only. Not weighed here: isolation instead of this plugin (isolation is the control for limits 2 to 4 and 8, and this plugin adds an ask with a reason and a log on top of it), and showing the injection warning to the user (the design logs it and shows nothing; no reason is recorded):
-- An allowlist instead of a denylist: it blocks every command not listed, so each command the agent needs must be added first ("Other choices", under "How this relates to Claude Code's own controls").
+Other designs were weighed in [ARCHITECTURE.md](ARCHITECTURE.md) ("Alternatives at a glance"). Two are deferred, not rejected: counting the step after the rules (T-007) and a built-in minimum deny list (no work item); the reason is priority only. Not weighed as alternatives: isolation instead of this plugin (isolation is the control for limits 2 to 4 and 8, and this plugin adds an ask with a reason and a log on top of it), and showing the injection warning to the user (the design logs it and shows nothing; no reason is recorded).
+
+Set aside, with reasons:
+
+- An allowlist instead of a denylist: it blocks every command not listed, so each command the agent needs must be added first ("Other choices" in ARCHITECTURE.md).
 - Deny instead of ask on an internal error: a deny on every error would stop all work, and an ask lets a person continue ("Fail-safe rule").
 - Block or rewrite instead of scan and log for injection: a phrase match has false positives, and rewriting makes the model see text that differs from the tool's real output ("Cuts").
 - Claude Code's own `permissions.deny` and sandbox instead of this plugin: they need no Python and do not depend on a hook timeout, but they show no per-rule reason and keep no audit log; the two can be used together ("How this relates to Claude Code's own controls").

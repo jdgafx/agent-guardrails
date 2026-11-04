@@ -1,6 +1,6 @@
 # Glossary
 
-Plain-English meanings, with where each one shows up in this repo. Entries are not in alphabetical order.
+Plain-English meanings, with where each one shows up in this repo. Entries are grouped: general terms first, then terms specific to this plugin.
 
 ## General terms
 
@@ -42,9 +42,9 @@ Plain-English meanings, with where each one shows up in this repo. Entries are n
 
 **fail open** — When the guard breaks, let everything through, including what the guard would have stopped. Per the Claude Code 2.1.295 release notes (not tested here), Claude Code does this by default when a hook cannot start, times out or crashes (exits with a code other than 0 or 2). This plugin sets `"onFailure": "block"` on its PreToolUse hook in `hooks.json` to turn it off (Claude Code 2.1.295 or later). On older versions it probably still fails open (not tested); an older version might instead reject the hook entry, and then the guard does not run (limit 9 in [THREAT_MODEL](docs/THREAT_MODEL.md)).
 
-**fail closed** — When the guard breaks, stop. Here an error inside the PreToolUse script gives **ask** (a person decides). A PreToolUse hook that cannot start, times out or crashes should be blocked by Claude Code, through the `onFailure` setting named under **fail open** (the same version and test caveat). Blocked means the call is stopped with no question. A PostToolUse failure blocks nothing and writes no log line. If the error comes after the rules ran, a deny stays a deny and an allow becomes an ask. If the policy or data folder is broken, every call asks, even one a rule would deny. An ask stops a call only when someone can answer and permission checks are on: bypass mode may skip it (limit 5 in [THREAT_MODEL](docs/THREAT_MODEL.md)), and in `claude -p` it is expected to end the call (seen once, not tested; limit 6), so it is not a hard stop.
+**fail closed** — When the guard breaks, stop. Here an error inside the PreToolUse script gives **ask** (a person decides). When a PreToolUse hook cannot start, times out or crashes, Claude Code should block the call, through the `onFailure` setting named under **fail open** (the same version and test caveat). Blocked means the call is stopped with no question. A PostToolUse failure blocks nothing and writes no log line. If the error comes after the rules ran, a deny stays a deny and an allow becomes an ask. If the policy or data folder is broken, every call asks, even one a rule would deny. An ask stops a call only when someone can answer and permission checks are on: bypass mode may skip it (limit 5 in [THREAT_MODEL](docs/THREAT_MODEL.md)), and in `claude -p` it is expected to end the call (seen once, not tested; limit 6), so it is not a hard stop.
 
-**least privilege** — Give the agent only the access it needs. Here the plugin only approximates this: it denies a short list (secrets, force pushes, production), asks about risky actions, and allows everything else. That is a denylist, which allows anything it does not name; an allowlist denies anything it does not name (the reason for the choice is under "Other choices" in [ARCHITECTURE](docs/ARCHITECTURE.md)).
+**least privilege** — Give the agent only the access it needs. Here the plugin only approximates this: it denies a short list of file names (secret files, production paths) and force pushes, each in a listed spelling, asks about risky actions, and allows everything else. That is a denylist, which allows anything it does not name; an allowlist denies anything it does not name (the reason for the choice is under "Other choices" in [ARCHITECTURE](docs/ARCHITECTURE.md)).
 
 **blast radius** — How much damage one mistake can do. Here: the rules aim to deny, or show to a person first, a wrong command in a listed spelling that would touch listed secrets, shared history, production, packages or clusters. An ask may not be a stop in bypass mode (see **bypass mode**). The radius is reduced, not removed: a command the rules do not list runs, and the agent can edit the guard (limits 4 and 7 in [THREAT_MODEL](docs/THREAT_MODEL.md)).
 
@@ -74,6 +74,6 @@ Plain-English meanings, with where each one shows up in this repo. Entries are n
 
 **Pre and Post** — Short forms for the two scripts, `hooks/pre_tool_use.py` (the PreToolUse hook) and `hooks/post_tool_use.py` (the PostToolUse hook). A **decision line** in the log is written by Pre for a deny or ask; a **result line** is written by Post after a call ran.
 
-**redaction** — Replacing a secret with a marker such as `[REDACTED:github-token]` before the text is written to the log. It works on seven known key formats only (the AWS secret key only after its label).
+**redaction** — Replacing a secret with a marker such as `[REDACTED:github-token]` before the text is written to the log. It works on seven known key formats only (the AWS secret key only right after `aws_secret_access_key=` or `:`; not in the quoted JSON form, and not a bare secret).
 
 **prompt injection** — Text in a web page or a tool result that tries to give the agent new orders. Here the plugin scans for the six phrases in the shipped `policy.json` in the output of web and MCP read tools only (not Bash or Read output; which tools count: limit 2 in [THREAT_MODEL](docs/THREAT_MODEL.md)) and writes a warning to the log. It does not remove the text.
