@@ -33,7 +33,8 @@ NEEDLES = [
     (2, "T", "If the policy or data folder is broken, every call asks, including calls a rule would have denied."),
     # T-013 changed "allowed with no prompt" to "no ask or deny from this plugin": Claude Code's own prompts may still apply, so "no prompt" overclaimed.
     (3, "T", "It misses options placed before `push`: `git -C repo push --force` and `git -c key=value push -f` are allowed with no ask or deny from this plugin."),
-    (4, "T", "The real control against a determined injection is isolation: a container or a separate user with no access to your secrets."),
+    # T-013 (EGM stage 7): "The real control" was a judgement; now "Isolation is the control ... this plugin does not provide it".
+    (4, "T", "Isolation is the control against a determined injection, and this plugin does not provide it: use a container or a separate user with no access to your secrets."),
     (5, "T", "### 8. Nothing controls what leaves the machine"),
     (6, "T", "- Your secrets, as far as they sit in files with the listed names (`.env`, keys, cloud credentials)."),
     (6, "T", "credential files not on the list (`~/.netrc`, `~/.npmrc`, `~/.pypirc`, `~/.git-credentials`, `~/.config/gh/hosts.yml`, `~/.config/gcloud`)"),
@@ -55,7 +56,8 @@ NEEDLES = [
     (19, "A", "so a new core module whose vendored copy was never added to git passes CI."),
     (20, "T", "- An `ask` caused by an internal error (reason starts with `[guardrails-error]`) writes no log line."),
     (21, "T", "## How it works"),
-    (22, "T", "Limits 7, 8 and 9 matter most."),
+    # T-013 (EGM stage 7): the ranking had no stated criterion; the text now gives only when each limit applies.
+    (22, "T", "Limits 7 and 8 apply to any setup. Limit 9 applies only to Claude Code older than 2.1.295"),
     (22, "T", "### 9. Old Claude Code versions fail open"),
     (23, "A", "| Failure | Who catches it | Answer | Tested |"),
     (24, "A", "Source: the Claude Code 2.1.295 release note"),

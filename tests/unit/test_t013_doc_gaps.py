@@ -57,6 +57,22 @@ def test_short_force_flag_glued_to_a_semicolon_only_asks():
     assert bash("cd r && " + G + " push --force") == ("deny", "deny-force-push")
 
 
+@pytest.mark.parametrize("cmd", [
+    G + ' push "--force" origin main',
+    G + " push '-f'",
+    G + " push origin main \\\n  --force-with-lease",
+    G + " push -f|cat",
+    G + " push -f>/dev/null",
+    G + " push origin main 2>&1 --force",
+])
+def test_other_force_spellings_only_ask(cmd):
+    assert bash(cmd) == ("ask", "ask-git-push")
+
+
+def test_quoted_recursive_flag_matches_no_rule():
+    assert bash('rm "-rf" build') == ("allow", "default-allow")
+
+
 def test_force_push_text_inside_quotes_is_denied():
     assert bash(G + ' commit -m "never ' + G + ' push --force"') == ("deny", "deny-force-push")
 
