@@ -4,6 +4,7 @@ Fail-safe rule: PreToolUse fails closed to "ask" (never to "allow"). PostToolUse
 so it raises and the script reports a non-blocking error.
 """
 import json
+import os
 
 from . import audit, injection, rules
 from .policy import load_policy
@@ -38,28 +39,77 @@ def error_ask(exc):
                     "Asking instead of guessing." % (type(exc).__name__, exc))
 
 
+def _record(data, p, d, pol):
+    """Save the decision memo and the audit line. Returns the first error, or None."""
+    err = None
+    tool, tin = p["tool_name"], p.get("tool_input", {})
+    sid, tid = p.get("session_id", "unknown"), p.get("tool_use_id")
+    try:
+        _need_data(data)
+        audit.remember_decision(data, sid, tid, d.decision, d.rule, d.step)
+    except Exception as e:
+        err = e
+    if d.decision != "allow":
+        try:
+            audit.write_audit(data, {
+                "session_id": sid, "tool_name": tool, "tool_use_id": tid,
+                "event": "decision", "decision": d.decision, "rule": d.rule,
+                "step": d.step, "input": tin, "reason": d.reason}, pol)
+        except Exception as e:
+            err = err or e
+    return err
+
+
+def _count(data, p):
+    """The step number of this call, or None when it cannot be counted."""
+    try:
+        _need_data(data)
+        return audit.next_step(data, p.get("session_id", "unknown"), p.get("tool_use_id"))
+    except Exception:
+        return None
+
+
 def run_pre(raw, root, data):
-    """Return the text to print on stdout. Empty text means allow (normal prompts still apply)."""
+    """Return the text to print on stdout. Empty text means allow (normal prompts still apply).
+
+    The rules run before anything that can fail (policy trouble, an unwritable data folder), so
+    a deny stays a deny. Only an allow that cannot be counted or logged becomes an ask.
+    """
     try:
         p = _parse(raw)
-        _need_data(data)
-        pol = load_policy(root, data)
-        sid, tid = p.get("session_id", "unknown"), p.get("tool_use_id")
         tool, tin = p["tool_name"], p.get("tool_input", {})
-        step = audit.next_step(data, sid, tid)
-        d = rules.evaluate(pol, tool, tin, step)
-        reason = "[%s] %s" % (d.rule, d.reason)
+        cwd = p.get("cwd") if isinstance(p.get("cwd"), str) and p.get("cwd") else os.getcwd()
         try:
-            audit.remember_decision(data, sid, tid, d.decision, d.rule, step)
-            if d.decision != "allow":
-                audit.write_audit(data, {
-                    "session_id": sid, "tool_name": tool, "tool_use_id": tid,
-                    "event": "decision", "decision": d.decision, "rule": d.rule,
-                    "step": step, "input": tin, "reason": d.reason}, pol)
-        except Exception as e:  # a deny stays a deny; an unlogged allow becomes an ask
-            if d.decision == "allow":
-                return error_ask(e)
-        return "" if d.decision == "allow" else pre_json(d.decision, reason)
+            guard = rules.guard_check(tool, tin, rules.guard_paths(
+                root, data, os.environ.get("GUARDRAILS_POLICY")), cwd)
+        except Exception as e:  # guard trouble must not hide a deny of the rules: ask instead
+            guard = rules.Decision("ask", "guardrails-error",
+                                   "The guard-path check failed (%s). Confirm it." % e, None)
+        try:
+            pol, errors = load_policy(root, data)
+        except Exception as e:
+            if guard and guard.decision == "deny":  # broken shipped policy: the guard deny stands
+                d = guard._replace(step=_count(data, p))
+                _record(data, p, d, {})
+                return pre_json(d.decision, "[%s] %s" % (d.rule, d.reason))
+            return error_ask(e)
+        d = rules.stronger(guard, rules.match(pol, tool, tin))
+        if d is None and errors:
+            d = rules.Decision("ask", "guardrails-policy-error",
+                               "An added policy file was left out, so its rules are off (the "
+                               "shipped rules still apply). Fix or remove it: " + "; ".join(errors),
+                               None)
+        step = _count(data, p)
+        if d is None:
+            if step is None:
+                return error_ask(RuntimeError("the call could not be counted"))
+            d = rules.cap(pol, step) or rules.Decision("allow", "default-allow",
+                                                       "No rule matched.", step)
+        d = d._replace(step=step)
+        err = _record(data, p, d, pol)
+        if err and d.decision == "allow":  # a deny stays a deny; an unlogged allow becomes an ask
+            return error_ask(err)
+        return "" if d.decision == "allow" else pre_json(d.decision, "[%s] %s" % (d.rule, d.reason))
     except Exception as e:
         return error_ask(e)
 
@@ -68,7 +118,7 @@ def run_post(raw, root, data):
     """Write one audit line for a call that ran. Raises on error (the script reports it)."""
     p = _parse(raw)
     _need_data(data)
-    pol = load_policy(root, data)
+    pol, _ = load_policy(root, data)
     sid, tid, tool = p.get("session_id", "unknown"), p.get("tool_use_id"), p["tool_name"]
     prior = audit.recall_decision(data, sid, tid)
     resp = p.get("tool_response")

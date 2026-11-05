@@ -60,7 +60,7 @@ def main():
     with tempfile.TemporaryDirectory() as data:
         with open(os.path.join(PLUGIN, "policy.json"), encoding="utf-8") as f:
             pol = json.load(f)
-        pol["step_cap"]["max_calls"] = DEMO_CAP  # data-dir policy overrides the plugin policy
+        pol["step_cap"]["max_calls"] = DEMO_CAP  # the data-dir policy adds to the plugin policy
         with open(os.path.join(data, "policy.json"), "w", encoding="utf-8") as f:
             json.dump(pol, f)
 

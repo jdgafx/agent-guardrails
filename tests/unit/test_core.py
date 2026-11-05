@@ -11,6 +11,7 @@ from guardrails_core.policy import PolicyError, load_policy, validate
 ROOT = Path(__file__).resolve().parents[2]
 PLUGIN = ROOT / "packages" / "guardrails-plugin"
 POLICY = json.loads((PLUGIN / "policy.json").read_text())
+SCHEMA = json.loads((PLUGIN / "policy.schema.json").read_text())
 
 
 def ev(tool, tin, step=1):
@@ -117,13 +118,13 @@ def test_injection_scan_only_untrusted_and_never_mutates():
 
 def test_policy_validation_rejects_bad_policy(tmp_path):
     with pytest.raises(PolicyError):
-        validate({"version": 2, "rules": []})
+        validate({"version": 2, "rules": []}, SCHEMA)
     bad = json.loads(json.dumps(POLICY))
     bad["rules"][5]["match"] = ["(unclosed"]
     with pytest.raises(PolicyError):
-        validate(bad)
+        validate(bad, SCHEMA)
     (tmp_path / "policy.json").write_text("{nope")
-    with pytest.raises(PolicyError):
+    with pytest.raises(PolicyError):  # a broken shipped policy raises
         load_policy(str(tmp_path), str(tmp_path))
 
 
@@ -131,14 +132,18 @@ def test_policy_matches_schema():
     jsonschema = pytest.importorskip("jsonschema")
     schema = json.loads((PLUGIN / "policy.schema.json").read_text())
     jsonschema.validate(POLICY, schema)
-    validate(POLICY)
+    validate(POLICY, SCHEMA)
 
 
-def test_data_dir_policy_overrides_plugin_policy(tmp_path):
+def test_data_dir_policy_can_lower_the_cap(tmp_path):
     p = json.loads(json.dumps(POLICY))
     p["step_cap"]["max_calls"] = 7
     (tmp_path / "policy.json").write_text(json.dumps(p))
-    assert load_policy(str(PLUGIN), str(tmp_path))["step_cap"]["max_calls"] == 7
+    pol, errors = load_policy(str(PLUGIN), str(tmp_path))
+    assert pol["step_cap"]["max_calls"] == 7 and errors == []
+    p["step_cap"]["max_calls"] = 900  # a higher cap does not raise the shipped one
+    (tmp_path / "policy.json").write_text(json.dumps(p))
+    assert load_policy(str(PLUGIN), str(tmp_path))[0]["step_cap"]["max_calls"] == 200
 
 
 def test_audit_line_is_redacted_private_and_truncated(tmp_path):
@@ -223,9 +228,10 @@ def test_vendored_copy_matches_core():
         assert filecmp.cmp(core / n, vend / n, shallow=False), n + " differs: run make build"
 
 
-def test_policy_path_env_wins(tmp_path, monkeypatch):
+def test_policy_path_env_is_merged_into_the_shipped_policy(tmp_path, monkeypatch):
     p = tmp_path / "p.json"
     p.write_text(json.dumps(dict(POLICY, step_cap={"max_calls": 3})))
     monkeypatch.setenv("GUARDRAILS_POLICY", str(p))
-    assert load_policy(str(PLUGIN), None)["step_cap"]["max_calls"] == 3
+    pol, errors = load_policy(str(PLUGIN), None)
+    assert pol["step_cap"]["max_calls"] == 3 and errors == []
     assert os.environ["GUARDRAILS_POLICY"]

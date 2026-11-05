@@ -30,9 +30,9 @@ README.md, GLOSSARY.md, docs/    the documents. LICENSE: MIT.
 
 | File | Job |
 |------|-----|
-| `hooks.py` | The two entry points, `run_pre` and `run_post`, and the `ask` that Pre returns on any internal error. |
-| `rules.py` | Turns (tool name, tool input, step) into deny, ask or allow. |
-| `policy.py` | Finds, loads and checks `policy.json`. |
+| `hooks.py` | The two entry points, `run_pre` and `run_post`, and the `ask` that Pre returns on an internal error. Pre runs the guard check and the rules before anything that can fail (the policy of the user, the data folder). |
+| `rules.py` | Turns (tool name, tool input, step) into deny, ask or allow (`match`, `cap`, `evaluate`), and holds the guard check (`guard_paths`, `guard_check`, `stronger`). |
+| `policy.py` | Loads the shipped `policy.json`, checks every policy file against `policy.schema.json` in full, and merges the added policy files into the shipped one. |
 | `audit.py` | Writes log lines, counts calls, remembers Pre's decision for Post. |
 | `injection.py` | Scans results of web and MCP read tools for injection phrases: the first 200000 characters, markers matched without regard to case, a structured result scanned as JSON text. |
 | `redact.py` | Replaces known secret formats (seven patterns; the names are in the README) with `[REDACTED:kind]`. |
@@ -46,20 +46,22 @@ Claude wants to run a tool
         │
         ▼
 PreToolUse hook  (hooks/pre_tool_use.py → guardrails_core.hooks.run_pre)
-  1. read JSON from stdin, check it, and check the data folder is set
-  2. load policy: the file named by the GUARDRAILS_POLICY environment variable, else <data folder>/policy.json, else the policy.json in the plugin folder (first one found wins)
-  3. count the step (state/<session>.calls)
+  1. read JSON from stdin and check it
+  2. guard check: a write tool (or any MCP tool) on a guard path is deny, rule "deny-guard-files"; a write tool on one of the four Claude Code settings files (or the two in `CLAUDE_CONFIG_DIR`) is ask, rule "ask-claude-settings"; a Bash command with a word that is an absolute or ~ path inside a guard path is ask, rule "ask-guard-paths"
+  3. load policy: the shipped policy.json in the plugin folder, then the file named by the GUARDRAILS_POLICY environment variable, then <data folder>/policy.json, each added file checked against the schema and merged in (it can only add); an added file that fails is left out and its error kept; a shipped policy that fails ends the call with ask (a guard deny from step 2 stands)
   4. if a Bash command is over 20000 characters: ask, rule "oversize-command", and skip the rules
-  5. check every rule, whatever its kind (path, command or tool name); strongest wins (deny beats ask)
-  6. if no rule matched and step > cap: ask, rule "step-cap"
-  7. remember decision, rule and step (state/<session>.decisions)
-  8. deny/ask: write a "decision" audit line, print the JSON answer
+  5. check every rule, whatever its kind (path, command or tool name); strongest wins (deny beats ask; the guard result of step 2 wins a tie)
+  6. if no rule matched and an added policy file was left out: ask, rule "guardrails-policy-error", with the file and the error
+  7. count the step (state/<session>.calls); an allow that cannot be counted becomes ask, a deny or ask stands
+  8. if no rule matched and step > cap: ask, rule "step-cap"
+  9. remember decision, rule and step (state/<session>.decisions)
+ 10. deny/ask: write a "decision" audit line, print the JSON answer
      allow: print nothing
         │
         ▼  (Claude Code acts on the answer; see the note below)
         │
 PostToolUse hook (hooks/post_tool_use.py → run_post)
-  1. read JSON from stdin, check the data folder is set, and load the policy (as Pre does; a failure here means no log line)
+  1. read JSON from stdin, check the data folder is set, and load the policy (as Pre does, with the added policy files; a failure of the shipped policy or an unset data folder means no log line)
   2. look up what Pre decided for this tool_use_id
   3. if the tool is "untrusted" (web, MCP read): scan the output for injection phrases
   4. write a "result" audit line (redacted, with any warnings)
@@ -70,7 +72,7 @@ Between the two hooks, Claude Code enforces deny, asks you on ask, and on allow 
 
 ### Hook input and output
 
-Both hooks read one JSON object from standard input. It must have a non-empty text `tool_name`. If `tool_input` is present it must be an object. `session_id` is optional (a missing one becomes `"unknown"`; an empty one also counts in `unknown.calls`, but the log keeps it empty), `tool_use_id` is optional (a missing one means no id), and Post also reads `tool_response`. Pre prints nothing for allow. For deny and ask it prints one JSON object: `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny" or "ask", "permissionDecisionReason": "[rule-id] reason text"}}`, and it exits 0 on every path the wrapper covers (a failed import is covered; a crash outside the wrapper is not). A `session_id` that is JSON `null` is not replaced by the default: the call counts in a file named `None.calls`. Post prints nothing; it exits 0 when its log line was written and 1 when it was not (Claude Code documents 1 as a non-blocking error; not tested here).
+Both hooks read one JSON object from standard input. It must have a non-empty text `tool_name`. If `tool_input` is present it must be an object. Pre also reads `cwd` (the folder Claude Code runs in, which it sends with every hook call per its hook docs; not tested here) to resolve relative paths in the guard check; if it is missing or not text, the hook's own working folder is used. `session_id` is optional (a missing one becomes `"unknown"`; an empty one also counts in `unknown.calls`, but the log keeps it empty), `tool_use_id` is optional (a missing one means no id), and Post also reads `tool_response`. Pre prints nothing for allow. For deny and ask it prints one JSON object: `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny" or "ask", "permissionDecisionReason": "[rule-id] reason text"}}`, and it exits 0 on every path the wrapper covers (a failed import is covered; a crash outside the wrapper is not). A `session_id` that is JSON `null` is not replaced by the default: the call counts in a file named `None.calls`. Post prints nothing; it exits 0 when its log line was written and 1 when it was not (Claude Code documents 1 as a non-blocking error; not tested here).
 
 ## Fail-safe rule
 
@@ -78,7 +80,13 @@ Each failure has one owner. Layer 1 is the hook script itself. Layer 2 is Claude
 
 ### Layer 1, inside the script (answer: ask)
 
-`PreToolUse`: any exception before or during the rules becomes `ask` with a `guardrails-error` reason, exit code 0. If Python runs but the import of the vendored core fails (a missing `vendor/` folder), the wrapper in `pre_tool_use.py` catches that too. The step numbers here are those of the diagram above. An exception in steps 1 to 3 (read the input and check the data folder, load the policy, count the step in `state/<session>.calls`) happens before any rule ran, so even `cat .env` gets `ask`, not `deny` (this covers a data folder that is not set or not writable, a broken `policy.json`, and a counter file that cannot be written). An exception while the rules run (steps 4 to 6) also gives `ask`. An exception in step 7 or 8 (save the decision memo `state/<session>.decisions`; write the log line, deny and ask only) comes after the rules ran: a deny stays a deny, an ask stays an ask, and an allow becomes an ask, because an allowed call whose memo failed would otherwise go unrecorded. (If Post's own write succeeds, it still logs the result, with decision `unknown`.) The memo and the log line share one `try` block, so if the memo write fails, the log line of a deny or ask is not written either. An `ask` caused by an internal error (steps 1 to 6) writes no log line and no memo; if the user approves it and the Post script works (it reads the policy and the data folder too), Post finds no memo and writes decision `unknown`, rule and step null.
+`PreToolUse`: the rules run before anything that can fail, so a deny stays a deny. The step numbers here are those of the diagram above. If Python runs but the import of the vendored core fails (a missing `vendor/` folder), the wrapper in `pre_tool_use.py` catches that and asks. Inside the engine:
+- An exception in step 1 (bad input) gives `ask` with a `guardrails-error` reason, exit code 0, and no log line (there is no call to judge).
+- The guard check (step 2) needs no file in the data folder, so it runs first. If the shipped policy then cannot be loaded (step 3), a guard deny (a write tool on a guard path) still stands and is logged when the data folder can be written; any other call gets `ask` with a `guardrails-error` reason, even `cat .env`. This is the one case where a would-be deny is an ask, and the price of not having a built-in minimum deny list.
+- An added policy file that cannot be read or fails the schema does not stop the rules: it is left out, the shipped rules run, and a call that no rule matched gets `ask` with rule `guardrails-policy-error` naming the file and the error. That ask is a real decision: it is counted, saved in the memo and logged.
+- An unset data folder, a data folder that is a file, or a read-only `state/` stops only the counting and the logging (steps 7, 9 and 10). A deny or ask from the rules stands. A call that no rule matched is an allow that cannot be counted, so it becomes an ask with a `guardrails-error` reason.
+- An exception in step 9 or 10 (save the decision memo `state/<session>.decisions`; write the log line, deny and ask only) comes after the rules ran: a deny stays a deny, an ask stays an ask, and an allow becomes an ask, because an allowed call whose memo failed would otherwise go unrecorded. (If Post's own write succeeds, it still logs the result, with decision `unknown`.) The memo and the log line are tried separately, so a failed memo no longer loses the log line of a deny or ask.
+An `ask` caused by an internal error (a `guardrails-error` reason) writes no log line and no memo; if the user approves it and the Post script works (it reads the shipped policy and the data folder too), Post finds no memo and writes decision `unknown`, rule and step null.
 
 ### Layer 2, in Claude Code (answer: block)
 
@@ -87,12 +95,14 @@ Layer 1 cannot run if Python never starts or the hook is killed. By default, Cla
 | Failure | Who catches it | Answer | Tested |
 |---------|----------------|--------|--------|
 | Broken JSON or no tool name | Pre script (layer 1) | ask | yes |
-| Policy cannot be loaded, data folder unset or not writable | Pre script | ask, even for a call a rule would deny (the rules have not run yet). In bypass mode an ask may not stop the call (limit 5) | yes. An allowed command for each cause; a would-be deny (`cat .env`) only for a broken policy file |
+| Added policy file missing, unreadable or invalid | Pre script | the file is left out; deny and ask rules still decide; a call no rule matches asks with rule `guardrails-policy-error`. In bypass mode an ask may not stop the call (limit 5) | yes. `cat .env` stays a deny, `git push` an ask, `ls` the policy-error ask (`test_broken_added_policy_keeps_denies_and_asks_on_unmatched_calls`) |
+| Data folder unset, a file, or `state/` read-only | Pre script | a deny stays a deny; a call no rule matched asks (`guardrails-error`) | yes (`tests/unit/test_t007_self_protect.py`, cases 23 to 27) |
+| Shipped policy missing, broken or without `step_cap.max_calls` | Pre script | ask on every call (`guardrails-error`), except a guard deny | yes (case 41) |
 | Vendored core missing (the import fails) | the wrapper in `pre_tool_use.py` | ask | yes |
-| Log or state cannot be written after the rules ran | Pre script | a deny stays a deny; an allow becomes an ask when the memo write fails | no. `test_unwritable_state_turns_allow_into_ask` fails earlier (the counter is written by `audit.next_step`, which runs before `rules.evaluate`), so it tests the "policy cannot be loaded, data folder unset or not writable" row, not this one |
+| Log or state cannot be written after the rules ran | Pre script | a deny stays a deny; an allow becomes an ask when the memo write fails | yes for an unwritable `state/` (case 27); a log write that fails while the memo works is not tested |
 | Bash command over 20000 characters | Pre script (rule `oversize-command`) | ask, even if it holds a deny pattern | yes |
 | `python3` missing, a crash outside the wrapper, or a timeout | Claude Code, through `"onFailure": "block"` on the PreToolUse hook (2.1.295 or later) | should block (per the 2.1.295 release note). On older versions the call probably goes ahead (untested; the guard might not run at all) | exit code only (`test_no_python3_exits_non_zero_so_onfailure_block_applies`); the blocking and the timeout are not tested |
-| Error in the PostToolUse script (including an unset data folder or a broken policy, which Post reads too) | the Post script | message on stderr, exit 1; nothing is blocked because the tool already ran. Post has no `onFailure`. Claude Code documents exit 1 as a non-blocking error (not tested) | no |
+| Error in the PostToolUse script (including an unset data folder or a broken shipped policy, which Post reads too) | the Post script | message on stderr, exit 1; nothing is blocked because the tool already ran. Post has no `onFailure`. Claude Code documents exit 1 as a non-blocking error (not tested) | no |
 
 ### Slow input
 
@@ -102,7 +112,7 @@ Regex time grows with input size, and a timed-out hook is a failure of layer 2. 
 
 Why ask and not deny on an internal error? A broken guard should not stop all work: an ask lets a person continue, while a deny on every error would stop every call. (It keeps a human in the loop only when someone can answer: not in `claude -p`, limit 6, and not in bypass mode, limit 5.) Layer 2 cannot show a prompt: the setting the release note describes is `onFailure: "block"`, not an ask. So a missing `python3` should stop every call until the user fixes it (on 2.1.295 or later; see layer 2).
 
-Two alternatives are not built. Both are deferred, not rejected: no technical blocker is known and no reason beyond priority is recorded. Counting the step after the rules would keep a deny a deny when the counter file cannot be written (the step is needed only for the step cap, so the order could change; the current order has one code path, with the count taken once before the rules and carried by the memo and the log line); it is part of the open work item T-007 (an id from the project's own tracker, not in this repo; the same item that THREAT_MODEL.md names for writes to the guard files). A built-in minimum deny list would apply when the policy cannot load; it is not built, has no work item, and would be a second set of rules that must agree with `policy.json`. The price today is that a full disk or a broken policy turns every call, even a would-be deny, into an ask.
+Counting the step after the rules is built (T-007): the rules run first, so a full disk or an unwritable data folder no longer turns a deny into an ask. One alternative is not built. It is deferred, not rejected: no technical blocker is known and no reason beyond priority is recorded. A built-in minimum deny list would apply when the shipped policy cannot load; it is not built, has no work item, and would be a second set of rules that must agree with `policy.json`. The price today is that a missing or broken shipped policy turns every call, except a guard deny, into an ask.
 
 ## Decision: vendoring, not a pip install
 
@@ -129,7 +139,7 @@ Cost: two copies of the same code in git, and the CI gap above. Gain: the plugin
 
 ## How this relates to Claude Code's own controls
 
-Claude Code has two built-in controls that overlap with this plugin. The first is permission rules in its settings (`permissions.deny` and `ask`). They run inside Claude Code, need no Python and do not depend on a hook timeout. The second is a Bash sandbox that limits, at operating-system level, what shell commands can read, write and reach on the network. The sandbox can limit what a script reads, depending on its settings (its defaults were not tested); this plugin only sees `python script.py`, not what is inside.
+Claude Code has two built-in controls that overlap with this plugin. The first is permission rules in its settings (`permissions.deny` and `ask`). They run inside Claude Code, need no Python and do not depend on a hook timeout. The second is a Bash sandbox that limits, at operating-system level, what shell commands can read, write and reach on the network. The sandbox can limit what a script reads, depending on its settings (its defaults were not tested); this plugin only sees `python script.py`, not what is inside. It is also the barrier meant for Bash writes to this plugin's own files (limit 7 in [THREAT_MODEL.md](THREAT_MODEL.md)): `sandbox.enabled` true, `sandbox.allowUnsandboxedCommands` false (Claude Code then ignores `dangerouslyDisableSandbox`), `sandbox.filesystem.denyWrite` on the plugin folder and the data folder, and `permissions.deny` rules such as `Edit(//path/to/folder/**)`. The setting names were read from the current Claude Code docs on 2026-11-04; none of this was run against the plugin. The sandbox writes only to the working folder by default, so it does not cover a plugin folder inside the project.
 
 This plugin does not replace them. What it adds, over `permissions.deny` and `permissions.ask`, is a reason shown with each ask or deny, one policy file that installs as a plugin, and an audit log. The two can work together. A Claude Code release note reportedly states that a `permissions.deny` rule wins over a hook that answers `ask`. The version and the exact text were not recorded here and are unverified. Check the release notes yourself; if it holds, put the few things that must never run in `permissions.deny` and use this plugin for the ask tier and the log. This plugin does not depend on that change. Whether a plugin can ship permission settings itself has not been checked, so a user who wants `permissions.deny` must add it by hand.
 
@@ -138,7 +148,7 @@ This plugin does not replace them. What it adds, over `permissions.deny` and `pe
 In one line each:
 - Denylist, not allowlist: an allowlist blocks every command that is not listed, so each command the agent needs must be added first. The cost is that every command not on a list runs (see the limits in THREAT_MODEL.md).
 - Ask, not deny, on an internal error: explained under "Fail-safe rule".
-- One whole policy file overrides the shipped one instead of merging with it: one file is the whole policy, so there is no merge order to document. The cost is that new rules in a later version do not reach a user who has their own file, and nothing warns them (the policy has no shipped-version marker). Not built: an `extends` field, or a warning when a shipped rule id is missing from the user's file (no reason beyond priority is recorded).
+- Added policy files merge into the shipped one and can only add, instead of one file replacing the other: a replacement can loosen a rule, so the agent (or a typo) could switch the shipped rules off. The cost is that a user cannot loosen a shipped rule from their own file; an `extends` field that let an added rule replace a shipped one was rejected for the same reason.
 
 ## Policy
 
@@ -149,27 +159,20 @@ In one line each:
   - `tool`: regular expressions on the tool name. Case does not matter. `except` is ignored here too.
 - If several rules match, deny beats ask. Among rules of the same strength, the first one in the file is the one reported.
 - `untrusted_tools` patterns are regular expressions on the tool name and are case-sensitive (the shipped MCP pattern starts with `(?i)`, so MCP names match in any case).
-- `policy.schema.json` is the JSON Schema. `validate()` does not enforce all of it. **Check your own policy against the schema (README, "Change the rules"); no work item is recorded for making `validate()` enforce it.** The schema catches every item below except the three cases marked "neither". `validate()` checks that `version` is 1 (JSON `true` also passes, the schema's `const: 1` would refuse it), the fields of each rule, that every regex compiles (so a bad pattern is caught at load, not at the first match), and, when `step_cap` is present, that `max_calls` is a whole number of 1 or more. It does not check:
-  - that `step_cap` is present (without it there is no cap; the schema does not require it, so neither check catches this);
-  - that `max_calls` is present (a `step_cap` object without it passes and turns the cap off; the schema does not require it either, so neither check catches this);
-  - that `max_input_chars` meets the schema minimum of 100 (a value of 1 passes and cuts every logged input to one character);
-  - that `except` is a list (a text value such as `"*.example"` passes and may switch the rule off, because a text value is read letter by letter and a `*` or `?` in it matches any file name);
-  - that `except` is on a `path` rule (on a `command` or `tool` rule it passes and does nothing; the schema allows it too, so neither check catches this);
-  - that `audit` values have the right type (a text `max_input_chars` makes the log write fail);
-  - that `untrusted_tools` is a list (one text value may pass; it is read letter by letter, and a lone `^` matches every tool, so every tool's output is scanned. A value with an unbalanced `(`, `?` or `*` fails to compile and every call asks);
-  - that there are no unknown keys (a typo such as `step-cap` is ignored).
+- `policy.schema.json` is the JSON Schema, and it is enforced. `validate(p, schema)` walks the whole of `policy.schema.json` with a small checker (about 30 lines, no `jsonschema` package, because the plugin runs on the stock `python3` with no install step). It knows the keywords the schema uses (`type`, `required`, `properties`, `additionalProperties: false`, `items`, `enum`, `const`, `minItems`, `minLength`, `minimum`), skips the annotations `$schema`, `title` and `description`, and refuses any other keyword, so a later schema edit cannot add a check that does nothing. A JSON `true` is never an integer, and `const` and `enum` compare the type as well as the value (`true` and `1.0` do not equal `1`). After the walk it checks that rule ids are unique within a file and that every regex compiles. So a text `except`, an unknown key such as `step-cap`, a missing `max_calls`, a `max_input_chars` under 100 and a text `untrusted_tools` are all errors. Two things stay outside the schema: that `except` is on a `path` rule (on a `command` or `tool` rule it passes and does nothing; the schema allows it), and that the shipped policy has `step_cap.max_calls` (the shipped policy must have it; the schema does not require it).
+- Merge: the added rules are appended after the shipped rules (an added rule equal to a shipped one is skipped); `step_cap.max_calls` is the smaller of the shipped and added values; `untrusted_tools` and `injection_markers` are the union; `audit` in an added file is ignored. The shipped rules come first and the rule loop stops at the first deny, so a slow regex in an added file cannot delay a shipped deny.
 - `validate()` checks that a pattern compiles, not that it is fast. A pattern you add can be slow enough to hit the 10-second hook timeout. On Claude Code 2.1.295 or later the call should then be blocked (layer 2, untested); on older versions it probably runs unchecked (untested).
 
 ## Trust boundary
 
-The guard trusts every file it is made of and does not protect any of them. That is the policy (`policy.json`, in the data folder and in the plugin folder), the state files (`state/*.calls`, `state/*.decisions`), the log (`audit/*.jsonl`), and the files that make the guard run: the hook scripts, the `vendor/` copy of the engine, `hooks/hooks.json` and Claude Code's own settings files. The agent can write to all of them. If you pass `claude --plugin-dir` a folder inside the project the agent works in, the plugin folder is inside that project. The guard cannot tell a policy the user wrote from one the agent wrote. See limit 7 in THREAT_MODEL.md.
+The guard trusts the files it is made of, and protects some of them. Protected against the write tools (Write, Edit, MultiEdit, NotebookEdit and any MCP tool, rule `deny-guard-files`): the plugin folder (the shipped policy, the hook scripts, `vendor/`, `hooks/hooks.json`), the data folder (`state/*.calls`, `state/*.decisions`, `audit/*.jsonl`, an added `policy.json`) and the file named by `GUARDRAILS_POLICY`. The guard paths are known only at run time, so the check is code in `rules.py`, not a pattern in `policy.json`. Each path goes through `~` expansion, is joined to the hook input's `cwd`, and goes through `os.path.realpath`; a path is inside a guard path when it equals a guard file or equals or starts with a guard folder plus `/` (so `<data>2/x` is not inside `<data>`). A link in the project that points into the data folder is caught. Not protected: anything a Bash command writes without naming a guard path as an absolute or `~` path (limit 7 in THREAT_MODEL.md), Claude Code's own settings files beyond an ask (`ask-claude-settings`, four files), and the Python start-up files of the `python3` the hook runs.
 
-Policy lookup, in order; the first file that exists wins and the others are ignored:
-1. The file named by the `GUARDRAILS_POLICY` environment variable. If that path does not exist, it is skipped without a message. A folder is skipped the same way (only a regular file is picked). A file that exists but cannot be read, or is not valid JSON, is not skipped: it is picked, it fails to load, and every call gets `ask`. The same holds for each of the two files below.
-2. `${CLAUDE_PLUGIN_DATA}/policy.json`. It survives plugin updates.
-3. The `policy.json` in the plugin folder.
+Policy loading, in order; the shipped policy always loads first and added files can only add:
+1. The `policy.json` in the plugin folder. It must load, pass the schema and have `step_cap.max_calls`, or the call asks.
+2. The file named by the `GUARDRAILS_POLICY` environment variable, if the variable is set and not empty. If that path does not exist or is a folder, it is an error: the file is left out and the ask names it.
+3. `${CLAUDE_PLUGIN_DATA}/policy.json`, if the data folder is set and anything exists at that path (a link counts as existing). It survives plugin updates. Anything there that is not a regular file (a folder, a dangling link, a pipe) is an error. A path that does not exist is not an error: that is the normal case.
 
-A file found earlier replaces the later ones completely. Rules are not merged. A user who has their own policy file does not get new rules added to the shipped one in later versions. After updating the plugin, compare your policy file with the shipped one.
+An added policy file can only add to the shipped one. A missing or broken added policy file is left out, the shipped rules still apply, and calls no rule matches ask, with the file and the error in the reason. Deleting an added file removes its rules with no message. After updating the plugin, check your policy file against the schema; you no longer need a full copy of the shipped file.
 
 ## Audit and state
 
@@ -190,14 +193,15 @@ A file found earlier replaces the later ones completely. Rules are not merged. A
 | Command over 20000 characters asks | `test_oversize_command_asks_even_with_deny_pattern_inside` |
 | Three repetitive commands (60 to 180 KB) still get their deny in under 5 s with the size cap off | `test_regexes_scan_in_linear_time` (a time limit, not a proof of linear time) |
 | Step cap asks after 200; deny still wins | `test_step_cap_asks_after_cap_but_rules_still_win` |
-| Broken input, unset data folder, broken policy give ask | `test_pre_fails_to_ask_on_bad_input`, `test_pre_asks_when_data_dir_missing_or_policy_broken` (allowed command only), `test_policy_file_that_exists_but_cannot_load_is_picked_and_every_call_asks` (a broken policy file with `cat .env`, a would-be deny, asks) |
+| Broken input and unset data folder give ask; a broken added policy file is left out and the denies stay | `test_pre_fails_to_ask_on_bad_input`, `test_pre_asks_when_data_dir_missing_or_policy_broken`, `test_broken_added_policy_keeps_denies_and_asks_on_unmatched_calls` (`cat .env` stays a deny, `ls` asks) |
+| Every case of the guard-paths design, on the real hook scripts in a copy of the plugin: write tools denied on guard paths, added policy files add only, a deny stays a deny with an unset, file or read-only data folder, strict schema, Bash tripwire, the stated limit | `tests/unit/test_t007_self_protect.py`, one test per case (59) |
 | Missing `vendor/` still asks | `test_broken_install_still_asks` (e2e) |
 | No `python3` gives an exit code other than 0 or 2 | `test_no_python3_exits_non_zero_so_onfailure_block_applies` (e2e) |
 | `hooks.json` sets `onFailure: block` and a 10-second timeout on the Pre hook | `test_pre_tool_use_hook_blocks_on_failure` (checks the setting, not the blocking; the Post hook has the same timeout and no `onFailure`, which is not tested) |
 | Log is redacted, private, truncated | `test_audit_line_is_redacted_private_and_truncated` |
 | Vendored copy equals core | `test_vendored_copy_matches_core` (cannot fail under `make test`; see "Decision: vendoring") |
 
-Not tested: Claude Code actually blocking on `onFailure`; a hook timeout; bypass mode; parallel appends; a deny when the data folder is broken; a log or state write that fails after the rules ran; a failing Post script.
+Not tested: Claude Code actually blocking on `onFailure`; a hook timeout; bypass mode; parallel appends; a log write that fails while the memo works; a failing Post script; Claude Code's sandbox and `permissions.deny` as a barrier for Bash writes to the guard's files; that Claude Code sends `cwd` with every hook call.
 
 ## Alternatives at a glance
 
@@ -207,10 +211,11 @@ Each row points to where the reasons are written.
 |----------|------------------|-----|-------|
 | What the default is | Allowlist | It blocks every command not listed, so each needed command must be added first | "Other choices" |
 | Answer to an internal error | Deny | It would stop every call | "Fail-safe rule" |
-| Step counted before the rules | Count after the rules; a built-in minimum deny list | Deferred, not rejected, with no reason beyond priority recorded: T-007 for the first, no work item for the second | "Fail-safe rule" |
+| Step counted before the rules | Count after the rules (built in T-007); a built-in minimum deny list | The first is built. The second is deferred, not rejected, with no reason beyond priority recorded and no work item | "Fail-safe rule" |
 | Injection | Block or rewrite | False positives, and the model would see text that differs from the tool's real output | "Cuts" |
 | Built-in controls | `permissions.deny` and the sandbox alone | No per-rule reason, and not known to keep an audit log (not checked); the two can be used together | "How this relates to Claude Code's own controls" |
-| User policy file | Merge with the shipped one; an `extends` field; a warning for a missing shipped rule | One file is the whole policy; the cost is that new shipped rules do not reach it. The `extends` field and the warning: no reason beyond priority | "Other choices" |
+| User policy file | One file replacing the shipped one; an `extends` field that replaces shipped rules; leaving out a file that reuses a shipped rule id | Replacement can loosen a rule, which lets the agent switch the guard off. Built: add-only merge. A file that reuses an id is still merged (users who copied the whole shipped file would otherwise ask on every call) | "Other choices" |
+| Writes to the guard's files | Match more Bash write spellings; `chmod` the files read-only; sign the policy | The set of spellings is open-ended; the agent runs as the same user and can change the mode back; the key or hash would sit in a file the agent can write. Built: write tools denied on guard paths, a Bash tripwire on absolute and `~` paths, the sandbox as the intended barrier | "Trust boundary" |
 | What the log records for an allowed call | A decision line for every call | One more log line for every allowed call, and a search of the day's file in place of a small memo | "Audit and state" |
 | Stale vendored copy | CI fails on untracked files under `vendor/` | A one-line change; no reason beyond priority is recorded | "Decision: vendoring" |
 | How the plugin gets the engine | `pip`, a venv, a build step, one big file, a link, no separate core | `pip` needs network and a package manager; a venv is not portable; a build step can fail before the guard exists; one file is hard to review; a link may not survive an install; a separate core is a scope decision | "Decision: vendoring" |
@@ -221,13 +226,13 @@ Each row points to where the reasons are written.
 |------|------------------|-------|
 | Internal error or bad input | Pre answers ask | "Fail-safe rule", layer 1 |
 | `python3` missing, hook killed or timed out | `onFailure: block` on 2.1.295 or later (untested); none before | "Fail-safe rule", layer 2 |
-| A full disk or a broken policy turns a deny into an ask | None. Deferred: count the step after the rules (T-007); a built-in minimum deny list (no work item) | "Fail-safe rule" |
+| A broken or missing shipped policy turns a deny into an ask | None, except the guard denies. Deferred: a built-in minimum deny list (no work item). A full disk, an unset data folder or a broken added policy file no longer do this | "Fail-safe rule" |
 | Slow regex on a huge command | Size cap of 20000 characters, rewritten regexes, the 10-second timeout | "Slow input" |
-| A wrong policy file loads without a message | Check it against the schema by hand; the schema misses three cases | "Policy" |
-| The agent edits the guard | None built (T-007); see limit 7 in [THREAT_MODEL.md](THREAT_MODEL.md) | "Trust boundary" |
+| A wrong policy file loads without a message | Every policy file is checked against the whole schema; a wrong added file is left out and the ask names it | "Policy" |
+| The agent edits the guard | Write tools denied on guard paths, added policy files can only add, a Bash tripwire; a Bash write that names no guard path as an absolute or `~` path is not stopped (sandbox and `permissions.deny` intended, not tested); see limit 7 in [THREAT_MODEL.md](THREAT_MODEL.md) | "Trust boundary" |
 | Unlocked counter, state files that grow, no cleanup | None built; delete old state files by hand | "Audit and state" |
 | A new core module missing from the vendored copy | Run `git status` after `make build`; the CI check for untracked files is not built | "Decision: vendoring" |
-| A user's own policy file never gets rules added to the shipped one later | None; compare your file with the shipped one after an update | "Other choices" |
+| A user cannot loosen a shipped rule from their own policy file | Accepted: edit the shipped file by hand (a plugin update undoes it) | "Other choices" |
 | The log is partial (internal-error asks, a failed Post script, a failed call that may not reach Post) | None built; see "Audit and state" and limits of the log in [THREAT_MODEL.md](THREAT_MODEL.md) | "Audit and state" |
 | An ask may not stop a call (bypass mode, `claude -p`) | Put what must never run in `permissions.deny` as well (unverified) | "How this relates to Claude Code's own controls" |
 | Command rules apply to a tool named `Bash` only | None built; no fix written down | "Policy" |

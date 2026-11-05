@@ -24,13 +24,15 @@ def norm(text):
 
 NEEDLES = [
     (1, "T", "4. **An agent that edits the guard.**"),
-    (1, "T", "| Agent edits the guard's rules, counter, log, scripts or Claude Code settings | None yet | Not covered. See limit 7. |"),
+    # T-007 built the write-tool deny, add-only policy files and the Bash tripwire; the row says what is covered and what is not.
+    (1, "T", "| Agent edits the guard's rules, counter, log, scripts or Claude Code settings | `deny-guard-files`, `ask-guard-paths`, `ask-claude-settings`, add-only policy files |"),
     (1, "T", "### 7. The agent can change the guard itself"),
     (1, "T", "do not add the plugin folder, the data folder or Claude Code's settings folders to its allowed paths."),
     # T-013 reworded this passage into a numbered order of steps (the counter file is written before the rules, so a counter failure also asks).
     # T-013 re-keyed this to the diagram's step numbers (the data-folder check is now part of step 1), so the counter is step 3.
-    (2, "A", "An exception in steps 1 to 3 (read the input and check the data folder, load the policy, count the step in `state/<session>.calls`) happens before any rule ran, so even `cat .env` gets `ask`, not `deny`"),
-    (2, "T", "If the policy or data folder is broken, every call asks, including calls a rule would have denied."),
+    # T-007 moved the rules before the counter and the data folder, so the old "even cat .env gets ask" sentences are replaced.
+    (2, "A", "the rules run before anything that can fail, so a deny stays a deny"),
+    (2, "T", "A deny stays a deny in all of these (`cat .env` and a force push, tested)"),
     # T-013 changed "allowed with no prompt" to "no ask or deny from this plugin": Claude Code's own prompts may still apply, so "no prompt" overclaimed.
     # T-006 built the fix: option words before the subcommand are seen, so the old "allowed with no ask or deny" sentence is replaced by what is true now.
     (3, "T", "`git -C repo push --force`, `git -c key=value push -f`, `git --no-pager push -f` and `git --git-dir=x push -f` are denied."),
@@ -42,12 +44,12 @@ NEEDLES = [
     # T-006 added rules for these; the doc now says "Now ask" and lists what is still without a rule.
     (7, "T", "Now ask: `gh pr merge`, `gh release create` and `gh release delete`, `gh repo delete`, `docker push`"),
     (7, "T", "Still no rule: `rm -f`, a script that deletes files (`python3 script.py`)"),
-    (8, "A", "`validate()` does not enforce all of it."),
+    (8, "A", "`validate(p, schema)` walks the whole of `policy.schema.json` with a small checker"),
     (9, "T", "That makes four controls soft: every `ask` rule, the fail-safe `ask` on internal errors, the `oversize-command` ask"),
     (10, "A", "## How this relates to Claude Code's own controls"),
     (11, "A", "## Trust boundary"),
-    (11, "A", "Policy lookup, in order; the first file that exists wins and the others are ignored:"),
-    (11, "A", "2. load policy: the file named by the GUARDRAILS_POLICY environment variable"),
+    (11, "A", "Policy loading, in order; the shipped policy always loads first and added files can only add:"),
+    (11, "A", "3. load policy: the shipped policy.json in the plugin folder, then the file named by the GUARDRAILS_POLICY environment variable"),
     (12, "A", "### Hook input and output"),  # T-013: was a bold run-in label, now a heading so it can be linked
     (13, "A", "(so `a/b` and `a_b` share files)"),
     (14, "A", "Known limit: if Claude Code sends no `session_id`, every call counts in one shared file"),
@@ -79,10 +81,10 @@ NEEDLES = [
     (36, "A", "Put all the code inside the plugin folder (no separate core package, no copy)"),
     (37, "A", "on every word of the command, not only words that look like paths"),
     (39, "A", "- `policy.json` has `version` (must be `1`), `rules`, `step_cap`, `untrusted_tools`, `injection_markers` and `audit`"),
-    (40, "T", "- The agent can edit or delete the log files (limit 7)."),
-    (41, "A", "If that path does not exist, it is skipped without a message."),
-    (42, "A", "A file found earlier replaces the later ones completely."),
-    (42, "A", "After updating the plugin, compare your policy file with the shipped one."),
+    (40, "T", "- The write tools are denied on the log files, but a Bash command can still edit or delete them (limit 7)."),
+    (41, "A", "If that path does not exist or is a folder, it is an error: the file is left out and the ask names it."),
+    (42, "A", "An added policy file can only add to the shipped one."),
+    (42, "A", "After updating the plugin, check your policy file against the schema;"),
     (44, "A", "and on allow carries on with its own normal permission prompts"),
     (45, "A", "exits with an unexpected code (not 0 or 2)"),
     (46, "A", "the return value of `os.write` is not checked."),
@@ -122,6 +124,15 @@ STALE = [
     ("A", "`validate()` also compiles every regex"),
     ("A", "**No OpenTelemetry exporter.** Field names only."),
     ("A", "(and on path-like"),
+    # T-007: these sentences are false now
+    ("A", "A file found earlier replaces the later ones completely."),
+    ("A", "the first file that exists wins and the others are ignored"),
+    ("A", "The guard trusts every file it is made of and does not protect any of them."),
+    ("A", "`validate()` does not enforce all of it."),
+    ("T", "No rule protects any of them: a file write to each is allowed"),
+    ("T", "Fix not built yet (T-007)"),
+    ("T", "replaces the shipped one completely"),
+    ("T", "so even `cat .env` gets `ask`"),
 ]
 
 

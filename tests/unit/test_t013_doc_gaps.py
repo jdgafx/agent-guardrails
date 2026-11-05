@@ -2,7 +2,7 @@
 "Known false positives"), run through the shipped policy.
 
 These record TODAY's behaviour, so the document's claims can be reproduced from the repo.
-When a held fix (T-007, T-008) changes a case, change the case here and the text in
+When a held fix (T-008) changes a case, change the case here and the text in
 docs/THREAT_MODEL.md together; this file exists to stop a green run with a stale document.
 """
 import json
@@ -189,32 +189,36 @@ def flat(name):
 
 
 @pytest.mark.parametrize("content", ["{", ""])
-def test_policy_file_that_exists_but_cannot_load_is_picked_and_every_call_asks(
+def test_broken_added_policy_keeps_denies_and_asks_on_unmatched_calls(
         tmp_path, monkeypatch, content):
-    """Code: find_policy_path uses isfile, so a bad file is picked, not skipped; load fails; ask."""
+    """Code: a broken added file is left out; the shipped rules still apply; unmatched calls ask."""
     bad = tmp_path / "p.json"
     bad.write_text(content)
     monkeypatch.setenv("GUARDRAILS_POLICY", str(bad))
     root = ROOT / "packages" / "guardrails-plugin"
-    assert policy.find_policy_path(str(root), str(tmp_path)) == str(bad)
-    raw = json.dumps({"tool_name": "Bash", "tool_input": {"command": "cat .env"}})
-    out = json.loads(hooks.run_pre(raw, str(root), str(tmp_path)))
-    assert out["hookSpecificOutput"]["permissionDecision"] == "ask"
-    # a folder or a missing path IS skipped, with no message
-    for skipped in (tmp_path, tmp_path / "nope"):
-        monkeypatch.setenv("GUARDRAILS_POLICY", str(skipped))
-        assert policy.find_policy_path(str(root), None) == str(root / "policy.json")
+    pol, errors = policy.load_policy(str(root), str(tmp_path))
+    assert len(errors) == 1 and str(bad) in errors[0]
+    assert pol["rules"] == POLICY["rules"]
+
+    def run(cmd):
+        raw = json.dumps({"tool_name": "Bash", "tool_input": {"command": cmd}})
+        out = json.loads(hooks.run_pre(raw, str(root), str(tmp_path)))["hookSpecificOutput"]
+        return out["permissionDecision"], out["permissionDecisionReason"]
+
+    assert run("cat .env")[0] == "deny"
+    assert run("ls")[0] == "ask" and run("ls")[1].startswith("[guardrails-policy-error]")
+    # a missing path or a folder is an error too, not skipped
+    for bad_path in (tmp_path, tmp_path / "nope"):
+        monkeypatch.setenv("GUARDRAILS_POLICY", str(bad_path))
+        assert len(policy.load_policy(str(root), None)[1]) == 1
 
 
 @pytest.mark.parametrize("name", ["README.md", "docs/THREAT_MODEL.md", "docs/ARCHITECTURE.md"])
 def test_every_doc_that_describes_the_env_policy_lookup_says_a_bad_file_makes_calls_ask(name):
     text = flat(name)
-    hits = [m.start() for m in re.finditer(r"skipped without a message", text)]
-    assert hits, name
-    for h in hits:
-        window = text[h:h + 400]
-        assert re.search(r"cannot be read.{0,250}(every call (gets )?`?ask|asks)",
-                         window), (name, window)
+    assert re.search(r"a missing or broken added policy file is left out, the shipped rules "
+                     r"still apply, and calls no rule matches ask", text, re.I), name
+    assert "skipped without a message" not in text
     assert "unreadable file is skipped" not in text
     assert "not a readable file it is skipped" not in text
 
@@ -226,7 +230,9 @@ def test_every_doc_that_describes_the_env_policy_lookup_says_a_bad_file_makes_ca
 def test_except_is_read_only_by_path_rules(rule):
     """Code: rules.rule_hit ignores `except` for command and tool rules. validate() accepts it."""
     r = dict(rule, reason="r")
-    pol = policy.validate({"version": 1, "rules": [r]})
+    plugin = ROOT / "packages" / "guardrails-plugin"
+    schema = json.loads((plugin / "policy.schema.json").read_text())
+    pol = policy.validate({"version": 1, "rules": [r]}, schema)
     d = rules.evaluate(pol, "Bash", {"command": G + " push"}, 1)
     assert d.decision == r["decision"]
 

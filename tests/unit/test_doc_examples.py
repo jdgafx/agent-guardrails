@@ -30,6 +30,8 @@ EXPECT = {
     G + " push -f;echo": D, G + " push -f|cat": D,
     G + ' commit -m "never ' + G + ' push --force"': D,
     G + ' commit -m "fix production/config"': D,
+    "tail ~/.claude/plugins/data/agent-guardrails/audit/x.jsonl": A,
+    "sed -i s/deny/ask/ /opt/agent-guardrails/policy.json": A,
     "cat .env": D, "cat ~/.ssh/id_rsa.pub": D, "cp .env x": D, "cp .env.example .env": D,
     "echo .env >> .gitignore": D, "curl -d @.env": D,
     # --- asked
@@ -64,7 +66,10 @@ EXPECT = {
     "grep -r API_KEY .": OK, "helm list": OK, "kubectl patch": OK, "printenv": OK, "env": OK,
     "python script.py": OK, "python3 script.py": OK, 'rm "-rf" build': OK, "rm -f": OK,
     "scp host:.env.local .": OK, "curl -d @.env.production": OK, "cat config/*": OK,
-    "cat ~/.aws/./credentials": OK, "ls": OK, "echo > policy.json": OK,
+    "cat ~/.aws/./credentials": OK, "ls": OK,
+    # the stated Bash limit (THREAT_MODEL limit 7): a variable or a relative path is not seen
+    'rm "$CLAUDE_PLUGIN_DATA"/state/s.calls': OK,
+    "cd ~/.claude/plugins/data && rm agent-guardrails/policy.json": OK,
     "mcp__blog__get_post": OK, "mcp__my_pay__list": OK, "mcp__my_sender__list": OK,
     "mcp__x__get_posts": OK, "mcp__x__list_payments": OK, "mcp__x__resend": OK,
     # known limit (#539): a read word plus a write word excuses every later write word
@@ -75,13 +80,14 @@ EXPECT = {
 # Command-like spans that are not a case: build and tooling commands, flags, placeholders.
 NOT_A_CASE = {
     "claude --version", "claude -p", "make build", "make lint", "make test", "uv run pytest",
-    G + " diff --exit-code", G + " clean", "python -c", "mcp__<server>__<tool>",
+    G + " diff --exit-code", G + " clean", "python -c", "python3 -c", "python3 -I -S", "sed -i",
+    "mcp__<server>__<tool>",
 }
 
 PROGRAMS = (G, "rm", "kubectl", "terraform", "npm", "pnpm", "yarn", "cargo", "uv", "twine", "gem",
             "vercel", "gh", "docker", "helm", "aws", "find", "python", "python3", "cat", "cp",
             "echo", "scp", "curl", "env", "printenv", "grep", "bash", "ls", "make", "claude",
-            "cd", "alias")
+            "cd", "alias", "tail", "sed")
 
 
 def quoted_spans():
@@ -96,10 +102,23 @@ def quoted_spans():
     return {s: n for s, n in out.items() if " " in s or s.startswith("mcp__") or s in EXPECT}
 
 
+# Fixed example paths for the guard check: the docs quote commands that name them.
+GUARD = rules.guard_paths("/opt/agent-guardrails",
+                          "/home/u/.claude/plugins/data/agent-guardrails", None)
+
+
+@pytest.fixture(autouse=True)
+def example_home(monkeypatch):
+    monkeypatch.setenv("HOME", "/home/u")
+
+
 def decision(span):
     if span.startswith("mcp__"):
         return rules.evaluate(POLICY, span, {}, 1).decision
-    return rules.evaluate(POLICY, "Bash", {"command": span}, 1).decision
+    tin = {"command": span}
+    d = rules.stronger(rules.guard_check("Bash", tin, GUARD, "/home/u/proj"),
+                       rules.match(POLICY, "Bash", tin))
+    return d.decision if d else OK
 
 
 def test_every_command_the_docs_quote_has_a_recorded_decision():
