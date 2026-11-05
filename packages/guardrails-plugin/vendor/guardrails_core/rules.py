@@ -14,13 +14,19 @@ _RANK = {"deny": 2, "ask": 1}
 
 # Text fields of built-in tools: text the tool writes, searches for or sends, never a local path it
 # opens. The walk skips them, so "add .env to .gitignore" can be written. Every other string is a
-# candidate. `command` is split into words instead of being walked.
+# candidate. `command` is split into words instead of being walked. "*" skips the whole input
+# (StructuredOutput carries the workflow's own free-form answer fields). Names come from the tool
+# schemas of Claude Code; a tool missing here is checked in full (a visible deny, never silent).
 TEXT_FIELDS = {
     "Bash": ("description", "command"), "Write": ("content",), "Edit": ("old_string", "new_string"),
     "MultiEdit": ("edits",), "NotebookEdit": ("new_source",), "Grep": ("pattern",),
     "WebFetch": ("url", "prompt"), "WebSearch": ("query",), "Agent": ("prompt", "description"),
     "Task": ("prompt", "description"), "TodoWrite": ("todos",), "AskUserQuestion": ("questions",),
-    "ExitPlanMode": ("plan",), "ToolSearch": ("query",),
+    "ExitPlanMode": ("plan", "allowedPrompts"), "ToolSearch": ("query",),
+    "SendMessage": ("message", "summary"), "PushNotification": ("message",),
+    "TaskCreate": ("subject", "description", "activeForm", "metadata"),
+    "TaskUpdate": ("subject", "description", "activeForm", "metadata"),
+    "CronCreate": ("prompt",), "Skill": ("args",), "StructuredOutput": "*",
 }
 
 
@@ -38,6 +44,8 @@ def candidate_paths(tool_name, tool_input):
     An explicit stack, no size cap: deep or padded input must not turn a deny into an error or ask.
     """
     skip = TEXT_FIELDS.get(tool_name, ())
+    if skip == "*":
+        return []
     todo = [x for k, v in tool_input.items() if k not in skip for x in (k, v)]
     out = _named_paths(tool_name, tool_input) if tool_name == "Bash" else []
     while todo:

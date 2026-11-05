@@ -119,8 +119,7 @@ def test_a_bash_word_naming_a_listed_file_or_folder_is_denied(cmd):
     "echo .env >> .gitignore", "printf '%s\\n' .env .netrc >> .gitignore",  # cases 26, 27 (#556)
 ])
 def test_b_a_printed_name_is_still_read_as_a_path(cmd):
-    d = bash(cmd)
-    assert d[0] == DENY and d[1] in (ENV, CRED)
+    assert bash(cmd) == (DENY, ENV)
 
 
 def test_b_echo_into_a_credential_folder_is_denied():
@@ -209,7 +208,27 @@ TEXT_TABLE = [
     ("Agent", ("prompt", "description")), ("Task", ("prompt", "description")),
     ("TodoWrite", ("todos",)), ("AskUserQuestion", ("questions",)), ("ExitPlanMode", ("plan",)),
     ("ToolSearch", ("query",)),  # seen in the live capture, not in the first table
+    ("ExitPlanMode", ("allowedPrompts",)), ("SendMessage", ("message", "summary")),
+    ("PushNotification", ("message",)), ("CronCreate", ("prompt",)), ("Skill", ("args",)),
+    ("TaskCreate", ("subject", "description", "activeForm", "metadata")),
+    ("TaskUpdate", ("subject", "description", "activeForm", "metadata")),
 ]
+
+
+@pytest.mark.parametrize("tool,tin", [
+    ("TaskCreate", {"subject": "Read deploy/production/app.yaml in CI", "description": "x"}),
+    ("SendMessage", {"to": "w", "message": "I fixed the loader for src/.env and tests pass"}),
+    ("CronCreate", {"cron": "7 * * * *", "prompt": "check ~/.ssh/config perms"}),
+    ("Skill", {"skill": "x", "args": "~/.aws/credentials"}),
+    ("StructuredOutput", {"any_field": "src/.env", "other": ["~/.ssh/id_rsa"]}),
+    ("ExitPlanMode", {"allowedPrompts": [{"tool": "Bash", "prompt": "cat .env"}]}),
+])
+def test_c_prose_of_task_message_cron_skill_and_output_tools_is_allowed(tool, tin):
+    assert decide(tool, tin) == OK
+
+
+def test_c_a_path_field_of_a_prose_tool_is_still_checked():
+    assert decide("SendMessage", {"to": "~/.aws/credentials", "message": "x"}) == (DENY, CRED)
 
 
 @pytest.mark.parametrize("tool,fields", TEXT_TABLE)
@@ -267,4 +286,6 @@ def test_the_real_pre_script_denies(plugin, tmp_path, tool, tin, rule_text):
 def test_a_big_input_goes_through_the_real_pre_script_in_time(plugin, tmp_path):
     tin = {"k": ["a/" * 2048 for _ in range(2000)]}  # 2000 strings of 4096 characters
     decision, _, took = pre(plugin, "mcp__x__bulk", tin, tmp_path)
-    assert decision == ALLOW and took < 3, took
+    cfg = json.loads((plugin / "hooks" / "hooks.json").read_text())
+    limit = cfg["hooks"]["PreToolUse"][0]["hooks"][0]["timeout"]  # the hook is killed past this
+    assert decision == ALLOW and took < limit, took
