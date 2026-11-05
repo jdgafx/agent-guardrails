@@ -7,17 +7,49 @@ from collections import namedtuple
 Decision = namedtuple("Decision", "decision rule reason step")
 
 MAX_COMMAND_CHARS = 20000
-PATH_KEYS =("file_path", "path", "notebook_path")
+PATH_KEYS = ("file_path", "path", "notebook_path")
 _SPLIT = re.compile(r"[\s;&|<>=()\"'`]+")
 _RANK = {"deny": 2, "ask": 1}
 
 
-def candidate_paths(tool_name, tool_input):
-    """Strings that might be file paths. Bash gets every word of the command."""
+# Text fields of built-in tools: text the tool writes, searches for or sends, never a local path it
+# opens. The walk skips them, so "add .env to .gitignore" can be written. Every other string is a
+# candidate. `command` is split into words instead of being walked.
+TEXT_FIELDS = {
+    "Bash": ("description", "command"), "Write": ("content",), "Edit": ("old_string", "new_string"),
+    "MultiEdit": ("edits",), "NotebookEdit": ("new_source",), "Grep": ("pattern",),
+    "WebFetch": ("url", "prompt"), "WebSearch": ("query",), "Agent": ("prompt", "description"),
+    "Task": ("prompt", "description"), "TodoWrite": ("todos",), "AskUserQuestion": ("questions",),
+    "ExitPlanMode": ("plan",), "ToolSearch": ("query",),
+}
+
+
+def _named_paths(tool_name, tool_input):
+    """The guard check's strings: the three named path fields, or every word of a Bash command."""
     if tool_name == "Bash":
         return [t for t in _SPLIT.split(str(tool_input.get("command", ""))) if t]
     keys = PATH_KEYS + (("pattern",) if tool_name == "Glob" else ())
     return [str(tool_input[k]) for k in keys if isinstance(tool_input.get(k), str)]
+
+
+def candidate_paths(tool_name, tool_input):
+    """Strings that might be file paths: every string of the input at any depth, dict keys
+    included, except the text fields of built-in tools. Bash also gets every word of the command.
+    An explicit stack, no size cap: deep or padded input must not turn a deny into an error or ask.
+    """
+    skip = TEXT_FIELDS.get(tool_name, ())
+    todo = [x for k, v in tool_input.items() if k not in skip for x in (k, v)]
+    out = _named_paths(tool_name, tool_input) if tool_name == "Bash" else []
+    while todo:
+        x = todo.pop()
+        if isinstance(x, str):
+            if x:
+                out.append(x)
+        elif isinstance(x, dict):
+            todo.extend(y for kv in x.items() for y in kv)
+        elif isinstance(x, (list, tuple)):
+            todo.extend(x)
+    return out
 
 
 def _glob_hit(path, glob):
@@ -29,13 +61,22 @@ def _glob_hit(path, glob):
     return fnmatch.fnmatchcase(os.path.basename(path), glob)
 
 
+def _forms(path):
+    """As written, with ~ expanded, and both cleaned up (/./ and // and a trailing / removed)."""
+    try:
+        forms = {path, os.path.expanduser(path)}
+    except ValueError:  # a NUL byte after ~ cannot name a file; the other forms still count
+        forms = {path}
+    return forms | {os.path.normpath(f) for f in forms}
+
+
 def path_hit(path, rule):
-    variants = {path, os.path.expanduser(path)}
-    hit = any(_glob_hit(v, g) for v in variants for g in rule["match"])
-    return hit and not any(_glob_hit(v, g) for v in variants for g in rule.get("except", []))
+    """A form is denied when it matches and no except glob of the same rule excuses that form."""
+    return any(_glob_hit(f, g) for f in _forms(path) for g in rule["match"]
+               if not any(_glob_hit(f, e) for e in rule.get("except", [])))
 
 
-def rule_hit(rule, tool_name, tool_input):
+def rule_hit(rule, tool_name, tool_input, paths=None):
     kind = rule["kind"]
     if kind == "tool":
         return any(re.search(m, tool_name, re.I) for m in rule["match"])
@@ -43,7 +84,9 @@ def rule_hit(rule, tool_name, tool_input):
         cmd = tool_input.get("command")
         return (tool_name == "Bash" and isinstance(cmd, str)
                 and any(re.search(m, cmd) for m in rule["match"]))
-    return any(path_hit(p, rule) for p in candidate_paths(tool_name, tool_input))
+    if paths is None:
+        paths = candidate_paths(tool_name, tool_input)
+    return any(path_hit(p, rule) for p in paths)
 
 
 def match(policy, tool_name, tool_input):
@@ -59,8 +102,9 @@ def match(policy, tool_name, tool_input):
                         "Command is over %d characters, too long to check. Confirm it."
                         % MAX_COMMAND_CHARS, None)
     best = None
+    paths = candidate_paths(tool_name, tool_input)  # once per call, not once per rule
     for r in policy["rules"]:
-        if rule_hit(r, tool_name, tool_input) and (
+        if rule_hit(r, tool_name, tool_input, paths) and (
                 best is None or _RANK[r["decision"]] > _RANK[best["decision"]]):
             best = r
             if r["decision"] == "deny":
@@ -124,7 +168,7 @@ def guard_check(tool_name, tool_input, guard, cwd):
     those is Claude Code's sandbox. Do not add more spellings.
     """
     if tool_name == "Bash":
-        words = [w for w in candidate_paths(tool_name, tool_input) if w[0] in "/~"]
+        words = [w for w in _named_paths(tool_name, tool_input) if w[0] in "/~"]
         if any(_inside(_real(w, cwd), guard) for w in words):
             return Decision("ask", "ask-guard-paths",
                             "This command names a file of the guard (plugin folder, data folder "
@@ -132,7 +176,7 @@ def guard_check(tool_name, tool_input, guard, cwd):
         return None
     if tool_name not in WRITE_TOOLS and not tool_name.startswith("mcp__"):
         return None
-    paths = [_real(p, cwd) for p in candidate_paths(tool_name, tool_input)]
+    paths = [_real(p, cwd) for p in _named_paths(tool_name, tool_input)]
     if any(_inside(p, guard) for p in paths):
         return Decision("deny", "deny-guard-files",
                         "Claude may not change the guard's own files (plugin folder, data folder, "

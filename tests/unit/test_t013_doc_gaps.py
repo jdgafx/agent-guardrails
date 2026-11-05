@@ -2,7 +2,7 @@
 "Known false positives"), run through the shipped policy.
 
 These record TODAY's behaviour, so the document's claims can be reproduced from the repo.
-When a held fix (T-008) changes a case, change the case here and the text in
+When a fix (T-008 is built) changes a case, change the case here and the text in
 docs/THREAT_MODEL.md together; this file exists to stop a green run with a stale document.
 """
 import json
@@ -95,16 +95,15 @@ def test_env_name_glued_to_other_characters():
 
 
 def test_secret_gaps_by_name():
-    assert decide("Read", {"file_path": "~/.ssh"})[0] == "allow"
+    assert decide("Read", {"file_path": "~/.ssh"})[0] == "deny"  # T-008
     assert decide("Grep", {"pattern": "API_KEY", "path": "."})[0] == "allow"
-    assert bash("cat ~/.netrc")[0] == "allow"
+    assert bash("cat ~/.netrc")[0] == "deny"  # T-008
     assert bash("printenv")[0] == "allow"
 
 
 @pytest.mark.parametrize("cmd", [
-    "grep -r API_KEY .", "cat config/*", "env", "cat ~/.npmrc", "cat ~/.pypirc",
-    "cat ~/." + G + "-credentials", "cat ~/.config/gh/hosts.yml", "cat ~/.config/gcloud",
-    "aws s3 ls", "rm -f x", "python3 script.py"])  # T-006: gh, find -delete moved to asks
+    "grep -r API_KEY .", "cat config/*", "env", "aws s3 ls", "rm -f x",
+    "python3 script.py"])  # T-006: gh, find -delete moved to asks
 def test_the_rest_of_the_secret_and_no_rule_gaps_are_allowed(cmd):
     assert bash(cmd) == ("allow", "default-allow")
 
@@ -128,23 +127,26 @@ def test_t006_hidden_force_spellings_ask_and_a_read_with_push_in_it_asks_too(cmd
     assert bash(cmd)[0] == "ask"
 
 
-def test_grep_glob_field_is_ignored_and_unlisted_mcp_tools_are_allowed():
-    assert decide("Grep", {"pattern": "K", "path": ".", "glob": ".env*"})[0] == "allow"
+def test_grep_glob_field_is_checked_and_unlisted_mcp_tools_are_allowed():
+    assert decide("Grep", {"pattern": "K", "path": ".", "glob": ".env*"}) == (
+        "deny", "deny-env-files")
     for tool in ("mcp__x__push_files", "mcp__x__merge_pull_request", "mcp__x__create_issue"):
         assert decide(tool, {}) == ("allow", "default-allow")
 
 
 @pytest.mark.parametrize("tool", ["PowerShell", "Shell", "bash"])
-def test_shell_through_another_tool_name_gets_no_rule(tool):
-    assert decide(tool, {"command": "cat .env"})[0] == "allow"
+def test_shell_through_another_tool_name_is_matched_whole(tool):
+    # T-008: the whole command string is matched against the path rules; no command rule.
+    assert decide(tool, {"command": "cat .env"})[0] == "deny"
+    assert decide(tool, {"command": "cat .env.local"})[0] == "allow"
     assert decide(tool, {"command": G + " push --force"})[0] == "allow"
 
 
-def test_paths_are_matched_as_written_not_cleaned_up():
+def test_paths_are_cleaned_up_before_matching():
     assert decide("Read", {"file_path": "~/.aws/credentials"})[0] == "deny"
-    assert decide("Read", {"file_path": "~/.aws/./credentials"})[0] == "allow"
-    assert decide("Read", {"file_path": "~/.kube//config"})[0] == "allow"
-    assert bash("cat ~/.aws/./credentials")[0] == "allow"
+    assert decide("Read", {"file_path": "~/.aws/./credentials"})[0] == "deny"
+    assert decide("Read", {"file_path": "~/.kube//config"})[0] == "deny"
+    assert bash("cat ~/.aws/./credentials")[0] == "deny"
 
 
 def test_mcp_rule_reads_the_tool_part_of_the_name_not_the_server_part():

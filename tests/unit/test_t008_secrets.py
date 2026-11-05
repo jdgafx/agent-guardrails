@@ -208,6 +208,7 @@ TEXT_TABLE = [
     ("WebFetch", ("url", "prompt")), ("WebSearch", ("query",)),
     ("Agent", ("prompt", "description")), ("Task", ("prompt", "description")),
     ("TodoWrite", ("todos",)), ("AskUserQuestion", ("questions",)), ("ExitPlanMode", ("plan",)),
+    ("ToolSearch", ("query",)),  # seen in the live capture, not in the first table
 ]
 
 
