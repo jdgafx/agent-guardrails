@@ -498,3 +498,34 @@ def test_case54_write_to_project_settings_asks(env):
 def test_case55_edit_of_home_settings_local_asks(env):
     check(env, "Edit", {"file_path": str(env.home / ".claude" / "settings.local.json"),
                         "old_string": "a", "new_string": "b"}, ("ask", "ask-claude-settings"))
+
+
+# ---- Round 2: a NUL byte must not turn a deny into an ask; CLAUDE_CONFIG_DIR; stated Bash limits
+
+def test_case56_nul_word_keeps_force_push_deny(env):
+    check(env, "Bash", {"command": "git push --force origin main /tmp/a\x00"},
+          ("deny", "deny-force-push"))
+
+
+def test_case57_nul_word_keeps_env_deny_and_a_clean_command_allows(env):
+    check(env, "Bash", {"command": "cat .env /x\x00"}, DENY_ENV)
+    check(env, "Bash", {"command": "ls /tmp/a\x00"}, ALLOW, tid="t2")
+
+
+def test_case58_write_to_claude_config_dir_settings_asks(env):
+    cfg = env.tmp / "cfg"
+    env.extra["CLAUDE_CONFIG_DIR"] = cfg
+    check(env, "Write", {"file_path": str(cfg / "settings.json"), "content": "{}"},
+          ("ask", "ask-claude-settings"))
+    check(env, "Write", {"file_path": str(cfg / "other.json"), "content": "{}"}, ALLOW, tid="t2")
+
+
+def test_case59_bash_forms_the_tripwire_does_not_see_are_allowed(tmp_path):
+    e = Env(tmp_path)
+    e.data = e.tmp / "my dir" / "data"  # a space in a parent folder: the word split cuts the path
+    e.data.mkdir(parents=True)
+    for i, cmd in enumerate((
+            'rm "%s/policy.json"' % e.data,
+            "rm %s/d*/policy.json" % e.tmp,  # a glob
+            "mv %s /tmp/x" % e.tmp)):        # a parent folder
+        check(e, "Bash", {"command": cmd}, ALLOW, tid="g%d" % i)

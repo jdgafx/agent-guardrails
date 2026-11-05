@@ -104,12 +104,16 @@ def guard_paths(root, data, env_file):
 
 
 def _inside(path, guard):
-    return path in guard.files or any(
-        path == d or path.startswith(d.rstrip("/") + "/") for d in guard.dirs)
+    return path is not None and (path in guard.files or any(
+        path == d or path.startswith(d.rstrip("/") + "/") for d in guard.dirs))
 
 
 def _real(path, cwd):
-    return os.path.realpath(os.path.join(cwd, os.path.expanduser(path)))
+    """The resolved path, or None for a string that cannot name a file (a NUL byte)."""
+    try:
+        return os.path.realpath(os.path.join(cwd, os.path.expanduser(path)))
+    except ValueError:
+        return None
 
 
 def guard_check(tool_name, tool_input, guard, cwd):
@@ -133,8 +137,12 @@ def guard_check(tool_name, tool_input, guard, cwd):
         return Decision("deny", "deny-guard-files",
                         "Claude may not change the guard's own files (plugin folder, data folder, "
                         "policy file). Edit them yourself.", None)
-    homes = (cwd, os.environ.get("CLAUDE_PROJECT_DIR") or cwd, os.path.expanduser("~"))
-    mine = {os.path.realpath(os.path.join(h, ".claude", n)) for h in homes for n in SETTINGS}
+    homes = [os.path.join(h, ".claude") for h in
+             (cwd, os.environ.get("CLAUDE_PROJECT_DIR") or cwd, os.path.expanduser("~"))]
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR")  # Claude Code's user settings folder when set
+    if cfg and "\0" not in cfg:
+        homes.append(os.path.join(cwd, cfg))
+    mine = {os.path.realpath(os.path.join(h, n)) for h in homes for n in SETTINGS}
     if any(p in mine for p in paths):
         return Decision("ask", "ask-claude-settings",
                         "This changes a Claude Code settings file, which can switch the guard "

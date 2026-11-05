@@ -47,7 +47,7 @@ Claude wants to run a tool
         ▼
 PreToolUse hook  (hooks/pre_tool_use.py → guardrails_core.hooks.run_pre)
   1. read JSON from stdin and check it
-  2. guard check: a write tool (or any MCP tool) on a guard path is deny, rule "deny-guard-files"; a write tool on one of the four Claude Code settings files is ask, rule "ask-claude-settings"; a Bash command with a word that is an absolute or ~ path inside a guard path is ask, rule "ask-guard-paths"
+  2. guard check: a write tool (or any MCP tool) on a guard path is deny, rule "deny-guard-files"; a write tool on one of the four Claude Code settings files (or the two in `CLAUDE_CONFIG_DIR`) is ask, rule "ask-claude-settings"; a Bash command with a word that is an absolute or ~ path inside a guard path is ask, rule "ask-guard-paths"
   3. load policy: the shipped policy.json in the plugin folder, then the file named by the GUARDRAILS_POLICY environment variable, then <data folder>/policy.json, each added file checked against the schema and merged in (it can only add); an added file that fails is left out and its error kept; a shipped policy that fails ends the call with ask (a guard deny from step 2 stands)
   4. if a Bash command is over 20000 characters: ask, rule "oversize-command", and skip the rules
   5. check every rule, whatever its kind (path, command or tool name); strongest wins (deny beats ask; the guard result of step 2 wins a tie)
@@ -194,7 +194,7 @@ An added policy file can only add to the shipped one. A missing or broken added 
 | Three repetitive commands (60 to 180 KB) still get their deny in under 5 s with the size cap off | `test_regexes_scan_in_linear_time` (a time limit, not a proof of linear time) |
 | Step cap asks after 200; deny still wins | `test_step_cap_asks_after_cap_but_rules_still_win` |
 | Broken input and unset data folder give ask; a broken added policy file is left out and the denies stay | `test_pre_fails_to_ask_on_bad_input`, `test_pre_asks_when_data_dir_missing_or_policy_broken`, `test_broken_added_policy_keeps_denies_and_asks_on_unmatched_calls` (`cat .env` stays a deny, `ls` asks) |
-| Every case of the guard-paths design, on the real hook scripts in a copy of the plugin: write tools denied on guard paths, added policy files add only, a deny stays a deny with an unset, file or read-only data folder, strict schema, Bash tripwire, the stated limit | `tests/unit/test_t007_self_protect.py`, one test per case (55) |
+| Every case of the guard-paths design, on the real hook scripts in a copy of the plugin: write tools denied on guard paths, added policy files add only, a deny stays a deny with an unset, file or read-only data folder, strict schema, Bash tripwire, the stated limit | `tests/unit/test_t007_self_protect.py`, one test per case (59) |
 | Missing `vendor/` still asks | `test_broken_install_still_asks` (e2e) |
 | No `python3` gives an exit code other than 0 or 2 | `test_no_python3_exits_non_zero_so_onfailure_block_applies` (e2e) |
 | `hooks.json` sets `onFailure: block` and a 10-second timeout on the Pre hook | `test_pre_tool_use_hook_blocks_on_failure` (checks the setting, not the blocking; the Post hook has the same timeout and no `onFailure`, which is not tested) |

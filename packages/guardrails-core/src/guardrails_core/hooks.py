@@ -79,8 +79,12 @@ def run_pre(raw, root, data):
         p = _parse(raw)
         tool, tin = p["tool_name"], p.get("tool_input", {})
         cwd = p.get("cwd") if isinstance(p.get("cwd"), str) and p.get("cwd") else os.getcwd()
-        guard = rules.guard_check(tool, tin, rules.guard_paths(
-            root, data, os.environ.get("GUARDRAILS_POLICY")), cwd)
+        try:
+            guard = rules.guard_check(tool, tin, rules.guard_paths(
+                root, data, os.environ.get("GUARDRAILS_POLICY")), cwd)
+        except Exception as e:  # guard trouble must not hide a deny of the rules: ask instead
+            guard = rules.Decision("ask", "guardrails-error",
+                                   "The guard-path check failed (%s). Confirm it." % e, None)
         try:
             pol, errors = load_policy(root, data)
         except Exception as e:
