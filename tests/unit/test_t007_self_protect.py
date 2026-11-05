@@ -65,11 +65,12 @@ class Env:
 
     def write_json(self, path, obj):
         Path(path).write_text(obj if isinstance(obj, str) else json.dumps(obj))
-        return path
+        return str(path)
 
     def hook(self, event, tool, tin, tid="t1", cwd=None, **more):
         script = "pre_tool_use.py" if event == "PreToolUse" else "post_tool_use.py"
-        env = {"PATH": "/usr/bin:/bin", "HOME": str(self.home), "CLAUDE_PLUGIN_ROOT": str(self.root)}
+        env = {"PATH": "/usr/bin:/bin", "HOME": str(self.home),
+               "CLAUDE_PLUGIN_ROOT": str(self.root)}
         if self.data_set:
             env["CLAUDE_PLUGIN_DATA"] = str(self.data)
         env.update({k: str(v) for k, v in self.extra.items()})
@@ -92,7 +93,8 @@ class Env:
 
     def audit(self):
         out = []
-        for f in sorted((self.data / "audit").glob("*.jsonl")) if (self.data / "audit").is_dir() else []:
+        folder = self.data / "audit"
+        for f in sorted(folder.glob("*.jsonl")) if folder.is_dir() else []:
             out += [json.loads(x) for x in f.read_text().splitlines()]
         return out
 

@@ -46,23 +46,97 @@ def rule_hit(rule, tool_name, tool_input):
     return any(path_hit(p, rule) for p in candidate_paths(tool_name, tool_input))
 
 
-def evaluate(policy, tool_name, tool_input, step):
-    """Strongest rule wins (deny over ask). The first rule of that strength is reported."""
+def match(policy, tool_name, tool_input):
+    """Strongest rule wins (deny over ask). The first rule of that strength is reported.
+
+    Returns None when no rule matches. The shipped rules come first, so a slow regex in an added
+    policy file cannot delay a shipped deny.
+    """
     cmd = tool_input.get("command") if tool_name == "Bash" else None
     if isinstance(cmd, str) and len(cmd) > MAX_COMMAND_CHARS:
         # Regex time grows with input size, and a hook that times out lets the call through.
         return Decision("ask", "oversize-command",
                         "Command is over %d characters, too long to check. Confirm it."
-                        % MAX_COMMAND_CHARS, step)
+                        % MAX_COMMAND_CHARS, None)
     best = None
     for r in policy["rules"]:
         if rule_hit(r, tool_name, tool_input) and (
                 best is None or _RANK[r["decision"]] > _RANK[best["decision"]]):
             best = r
-    cap = policy.get("step_cap", {}).get("max_calls")
-    if best is None and cap and step > cap:
-        why = "Step cap reached: %d tool calls this session (cap %d)." % (step, cap)
+            if r["decision"] == "deny":
+                break
+    return best and Decision(best["decision"], best["id"], best["reason"], None)
+
+
+def cap(policy, step):
+    """Ask once the session has made more tool calls than the step cap."""
+    limit = policy.get("step_cap", {}).get("max_calls")
+    if limit and step is not None and step > limit:
+        why = "Step cap reached: %d tool calls this session (cap %d)." % (step, limit)
         return Decision("ask", "step-cap", why, step)
-    if best is None:
+    return None
+
+
+def evaluate(policy, tool_name, tool_input, step):
+    d = match(policy, tool_name, tool_input) or cap(policy, step)
+    if d is None:
         return Decision("allow", "default-allow", "No rule matched.", step)
-    return Decision(best["decision"], best["id"], best["reason"], step)
+    return d._replace(step=step)
+
+
+def stronger(a, b):
+    """The stronger of two decisions or None; on a tie the first wins."""
+    if a is None or b is None:
+        return a or b
+    return b if _RANK[b.decision] > _RANK[a.decision] else a
+
+
+# ---- guard paths: the plugin folder, the data folder and the GUARDRAILS_POLICY file
+
+Guard = namedtuple("Guard", "dirs files")
+WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
+SETTINGS = ("settings.json", "settings.local.json")
+
+
+def guard_paths(root, data, env_file):
+    dirs = [os.path.realpath(d) for d in (root, data) if d]
+    return Guard(dirs, [os.path.realpath(env_file)] if env_file else [])
+
+
+def _inside(path, guard):
+    return path in guard.files or any(
+        path == d or path.startswith(d.rstrip("/") + "/") for d in guard.dirs)
+
+
+def _real(path, cwd):
+    return os.path.realpath(os.path.join(cwd, os.path.expanduser(path)))
+
+
+def guard_check(tool_name, tool_input, guard, cwd):
+    """Deny a write tool on a guard path, ask for a Bash word that names one.
+
+    shortcut: Bash gets only words that are absolute or ~ paths. Bash writes through variables,
+    relative paths or interpreters are not seen (docs/THREAT_MODEL.md, limit 7); the barrier for
+    those is Claude Code's sandbox. Do not add more spellings.
+    """
+    if tool_name == "Bash":
+        words = [w for w in candidate_paths(tool_name, tool_input) if w[0] in "/~"]
+        if any(_inside(_real(w, cwd), guard) for w in words):
+            return Decision("ask", "ask-guard-paths",
+                            "This command names a file of the guard (plugin folder, data folder "
+                            "or policy file). Confirm it.", None)
+        return None
+    if tool_name not in WRITE_TOOLS and not tool_name.startswith("mcp__"):
+        return None
+    paths = [_real(p, cwd) for p in candidate_paths(tool_name, tool_input)]
+    if any(_inside(p, guard) for p in paths):
+        return Decision("deny", "deny-guard-files",
+                        "Claude may not change the guard's own files (plugin folder, data folder, "
+                        "policy file). Edit them yourself.", None)
+    homes = (cwd, os.environ.get("CLAUDE_PROJECT_DIR") or cwd, os.path.expanduser("~"))
+    mine = {os.path.realpath(os.path.join(h, ".claude", n)) for h in homes for n in SETTINGS}
+    if any(p in mine for p in paths):
+        return Decision("ask", "ask-claude-settings",
+                        "This changes a Claude Code settings file, which can switch the guard "
+                        "off. Confirm it.", None)
+    return None
