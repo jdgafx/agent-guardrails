@@ -59,8 +59,10 @@ NEEDLES = [
     (17, "A", "## Modules (in guardrails-core)"),
     (17, "A", "## What the tests cover"),
     (18, "T", "That Claude Code then blocks the call comes from its release notes (2.1.295), not from a test here."),
-    (19, "A", "so a new core module whose vendored copy was never added to git passes CI."),
-    (20, "T", "- An `ask` caused by an internal error (reason starts with `[guardrails-error]`) writes no log line."),
+    # T-009 built the CI fix: the sentence now says the module fails CI.
+    (19, "A", "so a new core module whose vendored copy was never added to git fails CI instead of reaching a fresh clone."),
+    # T-009 logs the error ask: the sentence now says it is logged when the data folder can be written.
+    (20, "T", "- An `ask` caused by an internal error (reason starts with `[guardrails-error]`) is logged like any other decision when the data folder can be written."),
     (21, "T", "## How it works"),
     # T-013 (EGM stage 7): the ranking had no stated criterion; the text now gives only when each limit applies.
     (22, "T", "Limit 9 applies only to Claude Code older than 2.1.295 (check with `claude --version`)."),
@@ -81,7 +83,7 @@ NEEDLES = [
     (35, "A", "`validate()` checks that a pattern compiles, not that it is fast."),
     (36, "A", "Put all the code inside the plugin folder (no separate core package, no copy)"),
     (37, "A", "on every word of the command, not only words that look like paths"),
-    (39, "A", "- `policy.json` has `version` (must be `1`), `rules`, `step_cap`, `untrusted_tools`, `injection_markers` and `audit`"),
+    (39, "A", "- `policy.json` has `version` (must be `1`), `rules`, `step_cap`, `untrusted_tools`, `trusted_tools`, `injection_markers` and `audit`"),
     (40, "T", "- The write tools are denied on the log files, but a Bash command can still edit or delete them (limit 7)."),
     (41, "A", "If that path does not exist or is a folder, it is an error: the file is left out and the ask names it."),
     (42, "A", "An added policy file can only add to the shipped one."),
