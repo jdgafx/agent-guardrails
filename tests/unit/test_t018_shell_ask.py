@@ -322,6 +322,26 @@ def test_case_25_other_allow_rules_pass(proj, data, iso_on):
     assert status(proj, data)[0] == "allow"
 
 
+@pytest.mark.parametrize("entry", ["WebFetch(domain:evil.example)", "WebFetch(domain:*)",
+                                   "WebFetch(domain:*.example.com)", " WebFetch( domain:x)"])
+@pytest.mark.parametrize("name", ["settings.json", "settings.local.json"])
+def test_case_25_webfetch_domain_allow_rules_are_refused(proj, data, iso_on, entry, name):
+    """Round 2: the docs list WebFetch(domain:...) allow rules as the second host source of the
+    sandbox, so a project file that holds one is refused like network.allowedDomains. A "Yes, and
+    don't ask again" answer saves exactly this rule to the local settings file."""
+    if name == "settings.json":
+        put_block(proj)
+    put_block(proj, extra={"permissions": {"allow": [entry]}}, name=name)
+    refused(proj, data, "permissions.allow", entry, "host", "allowedDomains")
+
+
+def test_case_25_webfetch_rules_that_add_no_host_pass(proj, data, iso_on):
+    """A bare WebFetch allow rule and any WebFetch deny rule add no host (permissions page)."""
+    put_block(proj, extra={"permissions": {"allow": ["WebFetch"],
+                                           "deny": ["WebFetch(domain:evil.example)"]}})
+    assert status(proj, data)[0] == "allow"
+
+
 def test_case_26_permissions_that_is_not_an_object_is_refused(proj, data, iso_on):
     put_block(proj, extra={"permissions": "x"})
     refused(proj, data, "permissions must be an object")

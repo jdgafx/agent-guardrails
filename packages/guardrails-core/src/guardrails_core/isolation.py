@@ -102,8 +102,14 @@ def _unknown(obj, allowed, where="sandbox"):
     return None
 
 
-def _write_grants(perms):
-    """The two permission settings that, per the Claude Code docs, add sandbox write paths."""
+def _grants(perms):
+    """The permission settings that, per the Claude Code docs, add sandbox write paths or hosts.
+
+    Sources read from the docs' lists (sandboxing page, "Permission rules"; permissions page,
+    "Allow or deny every fetch"): `additionalDirectories` and `Edit` allow rules add write paths;
+    `WebFetch(domain:...)` allow rules add hosts, the same list as `sandbox.network.allowedDomains`
+    (a bare `WebFetch` rule adds none). A new source in the docs is a new row here.
+    """
     if not isinstance(perms, dict):
         return False, "permissions must be an object"
     if "additionalDirectories" in perms:
@@ -113,10 +119,17 @@ def _write_grants(perms):
     if not isinstance(allow, list):
         return False, "permissions.allow must be a list"
     for entry in allow:
-        # a permission rule's tool name is the text before "(": no path is matched here
-        if isinstance(entry, str) and entry.split("(", 1)[0].strip() == "Edit":
+        # a permission rule's tool name is the text before "(": no path or host is matched here
+        if not isinstance(entry, str):
+            continue
+        tool, _, spec = entry.partition("(")
+        tool = tool.strip()
+        if tool == "Edit":
             return False, ("permissions.allow holds %s, which widens where a sandboxed command "
                            "may write" % entry)
+        if tool == "WebFetch" and spec.strip().startswith("domain:"):
+            return False, ("permissions.allow holds %s, which adds a host the sandbox lets "
+                           "commands reach, the same as sandbox.network.allowedDomains" % entry)
     return True, ""
 
 
@@ -125,7 +138,8 @@ def block_in_force(project_dir, policy):
 
     Reads `.claude/settings.json` and `.claude/settings.local.json` of project_dir and merges
     them. Under "sandbox" only the keys of `_ALLOWED` pass. Outside it, the settings that add
-    sandbox write paths (`permissions.additionalDirectories`, `Edit` allow rules) fail. An
+    sandbox write paths or hosts (`permissions.additionalDirectories`, `Edit` and
+    `WebFetch(domain:...)` allow rules) fail. An
     unreadable file, bad JSON or any other trouble is a failure, never a pass.
     """
     try:
@@ -150,7 +164,7 @@ def block_in_force(project_dir, policy):
         for entry in fs.get("allowRead", []):
             if entry not in want["filesystem"]["allowRead"]:
                 return False, "sandbox.filesystem.allowRead holds %s, not in the block" % entry
-        return _write_grants(merged.get("permissions", {}))
+        return _grants(merged.get("permissions", {}))
     except Exception as e:  # an unchecked shell call is the case this layer exists to stop
         return False, "%s: %s" % (type(e).__name__, e)
 

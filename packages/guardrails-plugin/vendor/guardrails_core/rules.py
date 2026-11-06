@@ -127,8 +127,10 @@ def match(policy, tool_name, tool_input, cwd=None):
 
     A deny of kind path or command on a shell tool (Bash, PowerShell, Monitor) is returned as ask.
 
-    Returns None when no rule matches. The shipped rules come first, so a slow regex in an added
-    policy file cannot delay a shipped deny. With cwd, a path field of a non-Bash tool is also
+    Returns None when no rule matches. The shipped rules come first and the loop stops at the
+    first deny, so a slow regex in an added policy file cannot delay a deny on a file tool or a
+    tool rule. A shell text rule only asks and an ask does not stop the loop, so such a regex can
+    delay a shipped shell ask. With cwd, a path field of a non-Bash tool is also
     matched in its resolved form (a link to a listed file).
     """
     cmd = tool_input.get("command") if tool_name == "Bash" else None
