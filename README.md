@@ -111,7 +111,6 @@ What happened in that session (a single run, not a test):
 - Secrets in the input are replaced with `[REDACTED:<kind>]` before writing and before the 2000-character cut below. Kinds: private-key, anthropic-key, openai-key, aws-access-key, aws-secret-key, github-token, bearer-token.
 - If the JSON text of the input is longer than 2000 characters (the default of `audit.max_input_chars` in `policy.json`), the whole `input` field is replaced by `{"truncated": "<the first 2000 characters>"}`.
 - Every line is plain ASCII: a non-ASCII character is written as `\uXXXX`. `jq` and `json.loads` show the original text; `grep` for a non-ASCII word in the raw file does not find it.
-- Every line is plain ASCII: a non-ASCII character is written as `\uXXXX`. `jq` and `json.loads` show the original text; `grep` for a non-ASCII word in the raw file does not find it.
 - Field names `gen_ai.tool.name`, `gen_ai.tool.call.id` and `gen_ai.conversation.id` follow the OpenTelemetry GenAI naming style. There is no exporter. Setting `audit.otel_field_names` to false in `policy.json` leaves the three fields out.
 
 ## Change the rules
@@ -127,8 +126,7 @@ Both are optional and both are used if both exist. A missing or broken added pol
 What an added file can do:
 - Add rules. Shipped rules run first; the strongest rule that matches wins (deny over ask). An added rule cannot weaken or remove a shipped one, and it cannot turn a shipped deny into an ask. To relax a rule you must edit the shipped file by hand (a plugin update undoes that edit).
 - Lower the step cap with `step_cap.max_calls`. A higher value is ignored.
-- Add `untrusted_tools` names and `injection_markers`. This makes more output scanned.
-- Add `trusted_tools` names (regular expressions on the tool name): the output of a matching tool is not scanned for injection phrases. This is the one key that turns something off, and what it turns off is a log warning, never a deny or an ask. A tool that `untrusted_tools` names (WebFetch, WebSearch, MCP read tools) is scanned even if a `trusted_tools` pattern matches it.
+- Add `injection_markers`: more phrases are looked for in the scanned output. Every tool is scanned already; an added `untrusted_tools` name scans nothing new, it only stops a `trusted_tools` pattern from turning the scan off for that tool.
 - Add `trusted_tools` names (regular expressions on the tool name): the output of a matching tool is not scanned for injection phrases. This is the one key that turns something off, and what it turns off is a log warning, never a deny or an ask. A tool that `untrusted_tools` names (WebFetch, WebSearch, MCP read tools) is scanned even if a `trusted_tools` pattern matches it.
 - `audit` keys in an added file are ignored: a smaller value would weaken the log.
 

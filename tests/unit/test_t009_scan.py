@@ -591,3 +591,26 @@ def test_case_58_no_output_to_claude_and_old_acceptance_test(plugin, data, tmp_p
 
 def test_timer_helper_exists_on_this_platform():
     assert hasattr(signal, "setitimer")  # the 3 s limit runs here (Linux)
+
+
+def test_result_size_of_a_many_string_response_is_fast():
+    rows = [{"a": "x", "b": "y", "c": "z", "d": "w", "e": "v"} for _ in range(100000)]
+    t = time.time()
+    n = injection.result_bytes(rows)
+    assert n == len(json.dumps(rows, ensure_ascii=False)) and time.time() - t < 1.5
+
+
+def test_alarm_in_the_clean_up_still_gives_a_line(monkeypatch):
+    # the alarm fires on the first clean-up call: the scan returns a scan-timeout, it does not raise
+    real, calls = signal.setitimer, []
+
+    def flaky(which, secs, *a):
+        calls.append(secs)
+        if secs == 0 and len(calls) == 2:
+            raise injection.ScanTimeout()
+        return real(which, secs, *a)
+
+    monkeypatch.setattr(injection.signal, "setitimer", flaky)
+    w, _ = injection.scan(POLICY, "all fine here")
+    assert w == [{"warning": "scan-timeout", "marker": None}]
+    real(signal.ITIMER_REAL, 0)

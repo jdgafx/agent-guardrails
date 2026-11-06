@@ -33,13 +33,16 @@ def is_scanned(policy, tool_name):
     return not any(re.search(p, tool_name) for p in policy.get("trusted_tools", []))
 
 
+# A character json.dumps writes as more than itself: a quote, a backslash or a control character.
+_ESCAPED = re.compile(r'[\x00-\x1f"\\]')
+_SHORT = "\b\t\n\f\r"  # controls written as 2 bytes; the other controls take 6
+
+
 def _quoted_size(s):
     """UTF-8 size of json.dumps(s, ensure_ascii=False), without building that text."""
-    b = s.encode("utf-8", "surrogatepass")
-    n = len(b) + 2 + b.count(b'"') + b.count(b"\\")
-    for c in range(32):  # control characters: \b \t \n \f \r take 2 bytes, the rest 6
-        n += b.count(bytes([c])) * (1 if c in (8, 9, 10, 12, 13) else 5)
-    return n
+    m = _ESCAPED.findall(s)  # a plain string has none: no per-character work
+    n = (len(s) if s.isascii() else len(s.encode("utf-8", "surrogatepass"))) + 2 + len(m)
+    return n + 4 * sum(1 for c in m if c < " " and c not in _SHORT)
 
 
 def result_bytes(resp):
@@ -123,15 +126,19 @@ def scan(policy, resp):
         old = signal.signal(signal.SIGALRM, _alarm)
         signal.setitimer(signal.ITIMER_REAL, SCAN_SECONDS)
     try:
-        text, cut = scan_text(resp)
-        for mk in policy.get("injection_markers", []):
-            running[0] = mk["id"]
-            m = re.search(mk["pattern"], text, re.I)
-            if m:
-                found.append({"warning": "prompt-injection-suspected", "marker": mk["id"],
-                              "excerpt": redact_text(m.group(0))[:80]})
-        running[0] = None
-    except ScanTimeout:
+        try:
+            text, cut = scan_text(resp)
+            for mk in policy.get("injection_markers", []):
+                running[0] = mk["id"]
+                m = re.search(mk["pattern"], text, re.I)
+                if m:
+                    found.append({"warning": "prompt-injection-suspected", "marker": mk["id"],
+                                  "excerpt": redact_text(m.group(0))[:80]})
+            running[0] = None
+        finally:
+            if timer:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+    except ScanTimeout:  # outside the inner try too, so an alarm in the clean-up cannot escape
         found.append({"warning": "scan-timeout", "marker": running[0]})
     finally:
         if timer:
