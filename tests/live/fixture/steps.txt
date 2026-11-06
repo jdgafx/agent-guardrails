@@ -45,3 +45,6 @@ G3 {"pattern": "FAKE-", "glob": "{.env,x}", "output_mode": "content"}
 42 ln -s .e""nv symlink2 && echo made
 43 git show HEAD:.e""nv 2>&1 | head -2; echo rc=$?
 44 git -C repo33 show HEAD~1:.e""nv 2>&1 | head -2; echo rc=${PIPESTATUS[0]}
+45 echo x > "$HOME/t018-outside-marker"; echo rc=$?
+46 cd repo33 && touch .git/hooks/t018; echo rc=$?
+47 echo '{}' > .claude/settings.local.json; echo rc=$?

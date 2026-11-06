@@ -27,12 +27,12 @@ def ev(tool, tin, step=1):
     ("Read", {"file_path": "/home/u/.aws/credentials"}, "deny", "deny-credential-dirs"),
     ("Read", {"file_path": "/srv/production/x.txt"}, "deny", "deny-prod-config"),
     ("Read", {"file_path": "app.prod.yaml"}, "deny", "deny-prod-config"),
-    ("Bash", {"command": "cat .env"}, "deny", "deny-env-files"),
-    ("Bash", {"command": "echo hi > .env.local"}, "deny", "deny-env-files"),
-    ("Bash", {"command": "git push --force origin main"}, "deny", "deny-force-push"),
-    ("Bash", {"command": "git push -f"}, "deny", "deny-force-push"),
-    ("Bash", {"command": "git push origin +main"}, "deny", "deny-force-push"),
-    ("Bash", {"command": "git push --force-with-lease"}, "deny", "deny-force-push"),
+    ("Bash", {"command": "cat .env"}, "ask", "deny-env-files"),
+    ("Bash", {"command": "echo hi > .env.local"}, "ask", "deny-env-files"),
+    ("Bash", {"command": "git push --force origin main"}, "ask", "deny-force-push"),
+    ("Bash", {"command": "git push -f"}, "ask", "deny-force-push"),
+    ("Bash", {"command": "git push origin +main"}, "ask", "deny-force-push"),
+    ("Bash", {"command": "git push --force-with-lease"}, "ask", "deny-force-push"),
     ("Bash", {"command": "git push -u origin feature-f"}, "ask", "ask-git-push"),
     ("Bash", {"command": "git push origin main"}, "ask", "ask-git-push"),
     ("Bash", {"command": "rm -rf build"}, "ask", "ask-rm-recursive"),
@@ -49,10 +49,10 @@ def ev(tool, tin, step=1):
     ("mcp__gmail__list_threads", {}, "allow", "default-allow"),
     ("Read", {"file_path": "README.md"}, "allow", "default-allow"),
     ("Bash", {"command": "ls -la"}, "allow", "default-allow"),
-    ("Bash", {"command": "git push x ; git push --force"}, "deny", "deny-force-push"),
+    ("Bash", {"command": "git push x ; git push --force"}, "ask", "deny-force-push"),
     ("Bash", {"command": "rm a ; rm -rf b"}, "ask", "ask-rm-recursive"),
     ("Bash", {"command": "vercel a ; vercel --prod"}, "ask", "ask-vercel-prod"),
-    ("Bash", {"command": "git commit -m 'fix production/config'"}, "deny", "deny-prod-config"),
+    ("Bash", {"command": "git commit -m 'fix production/config'"}, "ask", "deny-prod-config"),
 ])
 def test_rules(tool, tin, decision, rule):
     d = ev(tool, tin)
@@ -75,7 +75,7 @@ def test_regexes_scan_in_linear_time(cmd, monkeypatch):
     start = time.monotonic()
     d = ev("Bash", {"command": cmd})
     assert time.monotonic() - start < 5
-    assert d.decision == "deny"  # the .env read at the end still wins
+    assert (d.decision, d.rule) == ("ask", "deny-env-files")  # the .env read at the end still wins
 
 
 def test_pre_tool_use_hook_blocks_on_failure():
@@ -198,16 +198,16 @@ def test_pre_asks_when_data_dir_missing_or_policy_broken(tmp_path, monkeypatch):
     assert json.loads(pre(ok, tmp_path))["hookSpecificOutput"]["permissionDecision"] == "ask"
 
 
-def test_pre_allow_prints_nothing_and_deny_is_logged(tmp_path):
+def test_pre_allow_prints_nothing_and_a_shell_ask_is_logged(tmp_path):
     ok = {"session_id": "s", "tool_use_id": "1", "tool_name": "Bash",
           "tool_input": {"command": "ls"}}
     assert pre(ok, tmp_path) == ""
     deny = dict(ok, tool_use_id="2", tool_input={"command": "cat .env"})
-    assert json.loads(pre(deny, tmp_path))["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert json.loads(pre(deny, tmp_path))["hookSpecificOutput"]["permissionDecision"] == "ask"
     lines = [json.loads(x) for f in (tmp_path / "audit").glob("*.jsonl")
              for x in f.read_text().splitlines()]
     assert [(x["event"], x["decision"], x["rule"]) for x in lines] == [
-        ("decision", "deny", "deny-env-files")]
+        ("decision", "ask", "deny-env-files")]
 
 
 def test_unwritable_state_turns_allow_into_ask(tmp_path):

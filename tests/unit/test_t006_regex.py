@@ -43,6 +43,7 @@ DENY = [
     "git push --force;echo",
     "git push -f|cat",
     "cd r && git -C d push -f",
+    "git push https://h/u/git -f",
 ]
 
 ASK = [
@@ -122,8 +123,11 @@ MCP_ALLOW = [
 
 
 @pytest.mark.parametrize("cmd", DENY)
-def test_must_deny(cmd):
-    assert bash(cmd) == "deny"
+def test_must_ask_under_the_force_push_rule(cmd):
+    """T-018: a shell deny is an ask. The rule id stays, so the force-push regex stays covered
+    even though ask-git-push matches the same commands."""
+    d = rules.evaluate(POLICY, "Bash", {"command": cmd}, 1)
+    assert (d.decision, d.rule) == ("ask", "deny-force-push")
 
 
 @pytest.mark.parametrize("cmd", ASK)
@@ -194,6 +198,8 @@ def test_table_is_big_enough_to_mean_something():
 
 
 def test_no_existing_case_gets_a_weaker_decision_than_main():
+    # T-018: both sides run through the new engine, so a shell deny that became an ask is not
+    # seen here. The expected values of the shell cases were changed on purpose and reviewed.
     old, weaker = old_policy(), []
     for tool, tin in existing_cases():
         was, now = decide(old, tool, tin), decide(POLICY, tool, tin)
@@ -235,7 +241,7 @@ JUDGE = [  # (command or tool name, decision it must get)
     ("aws ec2 delete-vpc --vpc-id v", "ask"),
     ("aws --profile p s3api put-object --bucket b", "ask"), ("aws s3 --region x rm s3://b", "ask"),
     ("docker compose -f prod.yml push", "ask"), ("docker compose push", "ask"),
-    ("git push https://h/u/git -f", "deny"), ("git clean -n -f", "allow"),
+    ("git push https://h/u/git -f", "ask"), ("git clean -n -f", "allow"),
     ("git clean -df --dry-run", "allow"), ("git clean -f -n", "allow"), ("git clean -fd", "ask"),
     ("find -delete", "ask"), ("find . -exec /bin/rm {} +", "ask"),
     ("find -exec /usr/bin/rm {} +", "ask"), ("find . -name rm-me", "allow"),
@@ -327,4 +333,4 @@ def test_end_to_end_through_the_hook_for_the_headline_case(tmp_path):
                       "tool_input": {"command": "git -C d push --force"}})
     plugin = str(ROOT / "packages" / "guardrails-plugin")
     out = json.loads(hooks.run_pre(raw, plugin, str(tmp_path)))
-    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert out["hookSpecificOutput"]["permissionDecision"] == "ask"

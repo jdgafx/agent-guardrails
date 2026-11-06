@@ -72,9 +72,9 @@ def pre(tool, tool_input, sid="s-1"):
 CASES = [
     ("Read", {"file_path": "/tmp/proj/.env"}, "deny"),
     ("Read", {"file_path": "/tmp/proj/.env.production"}, "deny"),
-    ("Bash", {"command": "cat ~/.ssh/id_rsa"}, "deny"),
+    ("Bash", {"command": "cat ~/.ssh/id_rsa"}, "ask"),
     ("Read", {"file_path": "/home/u/.aws/credentials"}, "deny"),
-    ("Bash", {"command": "git push --force origin main"}, "deny"),
+    ("Bash", {"command": "git push --force origin main"}, "ask"),
     ("Bash", {"command": "git push origin main"}, "ask"),
     ("Bash", {"command": "rm -rf build"}, "ask"),
     ("Bash", {"command": "terraform apply -auto-approve"}, "ask"),

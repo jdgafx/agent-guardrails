@@ -17,18 +17,18 @@ ISOLATED_RULES = ("deny-env-files", "deny-credential-dirs")
 # Project anywhere below, directly in the home folder, directly in ~/.config. Never `~/**` or
 # `/**`: that made every sandboxed command take 100 to 187 s on a large home folder.
 ANCHORS = ("./**/", "~/", "~/.config/")
-SHELL_TOOLS = ("Bash", "PowerShell", "Monitor")
+SHELL_TOOLS = rules.SHELL_TOOLS
 
 _FLAGS = (("enabled", True), ("failIfUnavailable", True), ("allowUnsandboxedCommands", False),
           ("autoAllowBashIfSandboxed", False))
 # The keys a project may have under "sandbox" and still count as the block: the block's own, and
-# the ones that can only narrow it or add hosts. Any other key (excludedCommands,
-# network.allowAllUnixSockets, enableWeakerNestedSandbox, one a later Claude Code adds) does not.
+# the ones that can only narrow it. Any other key does not: allowWrite and network.allowedDomains
+# widen it, and so do excludedCommands, network.allowAllUnixSockets, enableWeakerNestedSandbox and
+# a key a later Claude Code adds.
 _ALLOWED = {"enabled": None, "failIfUnavailable": None, "allowUnsandboxedCommands": None,
             "autoAllowBashIfSandboxed": None,
-            "filesystem": {"denyRead": None, "allowRead": None, "allowWrite": None,
-                           "denyWrite": None},
-            "network": {"allowedDomains": None, "deniedDomains": None}}
+            "filesystem": {"denyRead": None, "allowRead": None, "denyWrite": None},
+            "network": {"deniedDomains": None}}
 
 
 def _core(glob):
@@ -73,7 +73,7 @@ def _read(path):
         raise ValueError("%s cannot be read as JSON (%s)" % (path, e)) from None
     if not isinstance(obj, dict) or not isinstance(obj.get("sandbox", {}), dict):
         raise ValueError("%s: \"sandbox\" must be an object" % path)
-    return obj.get("sandbox", {})
+    return obj
 
 
 def _merge(base, over):
@@ -102,16 +102,51 @@ def _unknown(obj, allowed, where="sandbox"):
     return None
 
 
+def _grants(perms):
+    """The permission settings that, per the Claude Code docs, add sandbox write paths or hosts.
+
+    Sources read from the docs' lists (sandboxing page, "Permission rules"; permissions page,
+    "Allow or deny every fetch"): `additionalDirectories` and `Edit` allow rules add write paths;
+    `WebFetch(domain:...)` allow rules add hosts, the same list as `sandbox.network.allowedDomains`
+    (a bare `WebFetch` rule adds none). A new source in the docs is a new row here.
+    """
+    if not isinstance(perms, dict):
+        return False, "permissions must be an object"
+    if "additionalDirectories" in perms:
+        return False, ("permissions.additionalDirectories widens where a sandboxed command may "
+                       "write")
+    allow = perms.get("allow", [])
+    if not isinstance(allow, list):
+        return False, "permissions.allow must be a list"
+    for entry in allow:
+        # a permission rule's tool name is the text before "(": no path or host is matched here
+        if not isinstance(entry, str):
+            continue
+        tool, _, spec = entry.partition("(")
+        tool = tool.strip()
+        if tool == "Edit":
+            return False, ("permissions.allow holds %s, which widens where a sandboxed command "
+                           "may write" % entry)
+        if tool == "WebFetch" and spec.strip().startswith("domain:"):
+            return False, ("permissions.allow holds %s, which adds a host the sandbox lets "
+                           "commands reach, the same as sandbox.network.allowedDomains" % entry)
+    return True, ""
+
+
 def block_in_force(project_dir, policy):
     """(True, "") when the project's settings files hold the block, else (False, first failure).
 
     Reads `.claude/settings.json` and `.claude/settings.local.json` of project_dir and merges
-    them. An unreadable file, bad JSON or any other trouble is a failure, never a pass.
+    them. Under "sandbox" only the keys of `_ALLOWED` pass. Outside it, the settings that add
+    sandbox write paths or hosts (`permissions.additionalDirectories`, `Edit` and
+    `WebFetch(domain:...)` allow rules) fail. An
+    unreadable file, bad JSON or any other trouble is a failure, never a pass.
     """
     try:
-        sb = {}
+        merged = {}
         for name in rules.SETTINGS:  # shared first, so the local file wins
-            sb = _merge(sb, _read(os.path.join(project_dir, ".claude", name)))
+            merged = _merge(merged, _read(os.path.join(project_dir, ".claude", name)))
+        sb = merged.get("sandbox", {})
         want = sandbox_block(policy)["sandbox"]
         for k, v in _FLAGS:
             if sb.get(k) is not v:
@@ -129,16 +164,20 @@ def block_in_force(project_dir, policy):
         for entry in fs.get("allowRead", []):
             if entry not in want["filesystem"]["allowRead"]:
                 return False, "sandbox.filesystem.allowRead holds %s, not in the block" % entry
-        return True, ""
+        return _grants(merged.get("permissions", {}))
     except Exception as e:  # an unchecked shell call is the case this layer exists to stop
         return False, "%s: %s" % (type(e).__name__, e)
 
 
 def not_active_reason(project_dir, root, why):
-    f = os.path.join(project_dir, ".claude", "settings.local.json")
-    return ("Isolation is on, but the sandbox block is not in force in %s: %s. Copy %s into %s, "
-            "or merge its \"sandbox\" key." % (f, why, os.path.join(root, "isolation",
-                                                                   "settings.local.json"), f))
+    # The merged settings do not say which file holds a key, so the reason names both files.
+    shared = os.path.join(project_dir, ".claude", "settings.json")
+    local = os.path.join(project_dir, ".claude", "settings.local.json")
+    block = os.path.join(root, "isolation", "settings.local.json")
+    return ("Isolation is on, but the sandbox block is not in force in %s or %s: %s. Fix that "
+            "setting in the file that holds it: remove it if it is a setting the block does not "
+            "allow; if a sandbox setting is missing, merge the \"sandbox\" key of %s into %s and "
+            "keep your other settings." % (shared, local, why, block, local))
 
 
 if __name__ == "__main__":

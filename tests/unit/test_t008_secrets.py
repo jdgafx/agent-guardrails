@@ -20,7 +20,7 @@ POLICY = json.loads((PLUGIN / "policy.json").read_text())
 
 ENV, CRED = "deny-env-files", "deny-credential-dirs"
 KEY, PROD = "deny-key-files", "deny-prod-config"
-DENY, ALLOW = "deny", "allow"
+DENY, ALLOW, ASK = "deny", "allow", "ask"
 OK = (ALLOW, "default-allow")
 
 
@@ -80,7 +80,7 @@ A_CALLS = [
     ("9 grep glob npmrc", "Grep", {"pattern": "x", "glob": "**/.npmrc"}, (DENY, CRED)),
     ("13a cleaned up", "Read", {"file_path": "~/.aws/./credentials"}, (DENY, CRED)),
     ("14 dict key", "mcp__x__map", {"files": {"~/.aws/credentials": {"mode": "r"}}}, (DENY, CRED)),
-    ("15 other shell tool", "PowerShell", {"command": "Get-Content .env"}, (DENY, ENV)),
+    ("15 other shell tool", "PowerShell", {"command": "Get-Content .env"}, (ASK, ENV)),
     ("16a mcp text aws", "mcp__x__note", {"text": "see ~/.aws/config"}, (DENY, CRED)),
     ("16b mcp text prod", "mcp__github__create_issue",
      {"body": "the bug is in config/prod/db.yml"}, (DENY, PROD)),
@@ -103,8 +103,9 @@ def test_a_secret_named_in_any_field_is_denied(name, tool, tin, want):
     "cat ~/.kube//config", "cat ~/.aws/./credentials",  # case 13
     "cat .npmrc", "ls ~/.aws",  # case 16
 ])
-def test_a_bash_word_naming_a_listed_file_or_folder_is_denied(cmd):
-    assert bash(cmd) == (DENY, CRED)
+def test_a_bash_word_naming_a_listed_file_or_folder_asks(cmd):
+    # T-018: shell text is asked about, never refused
+    assert bash(cmd) == (ASK, CRED)
 
 
 # ---- B. Must deny or ask, as on main (the floor) -------------------------------------------
@@ -119,11 +120,11 @@ def test_a_bash_word_naming_a_listed_file_or_folder_is_denied(cmd):
     "echo .env >> .gitignore", "printf '%s\\n' .env .netrc >> .gitignore",  # cases 26, 27 (#556)
 ])
 def test_b_a_printed_name_is_still_read_as_a_path(cmd):
-    assert bash(cmd) == (DENY, ENV)
+    assert bash(cmd) == (ASK, ENV)
 
 
-def test_b_echo_into_a_credential_folder_is_denied():
-    assert bash("echo x >> ~/.ssh/authorized_keys") == (DENY, CRED)
+def test_b_echo_into_a_credential_folder_asks():
+    assert bash("echo x >> ~/.ssh/authorized_keys") == (ASK, CRED)
 
 
 def test_b_padding_the_input_cannot_turn_a_deny_into_an_ask():
@@ -276,11 +277,15 @@ def test_d_stated_limits_are_allowed(name, tool, tin):
     ("Grep", {"pattern": "KEY", "glob": ".env*"}, "Environment files"),
     ("Read", {"file_path": "~/.ssh"}, "Credential files and folders"),
     ("mcp__fs__read_file", {"filepath": "~/.aws/credentials"}, "Credential files and folders"),
-    ("Bash", {"command": "echo .env >> .gitignore"}, "Environment files"),
 ])
 def test_the_real_pre_script_denies(plugin, tmp_path, tool, tin, rule_text):
     decision, reason, _ = pre(plugin, tool, tin, tmp_path)
     assert decision == DENY and rule_text in reason
+
+
+def test_the_real_pre_script_asks_on_a_shell_command(plugin, tmp_path):
+    decision, reason, _ = pre(plugin, "Bash", {"command": "echo .env >> .gitignore"}, tmp_path)
+    assert decision == ASK and "Environment files" in reason and "asks instead of denying" in reason
 
 
 def test_a_big_input_goes_through_the_real_pre_script_in_time(plugin, tmp_path):

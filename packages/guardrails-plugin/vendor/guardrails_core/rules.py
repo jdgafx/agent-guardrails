@@ -6,6 +6,10 @@ from collections import namedtuple
 
 Decision = namedtuple("Decision", "decision rule reason step")
 
+SHELL_TOOLS = ("Bash", "PowerShell", "Monitor")
+SHELL_NOTE = (" This is a shell command, so the guard asks instead of denying: shell text can be "
+              "spelled in ways no rule matches (README, \"What holds each threat\").")
+
 MAX_COMMAND_CHARS = 20000
 PATH_KEYS = ("file_path", "path", "notebook_path")
 _SPLIT = re.compile(r"[\s;&|<>=()\"'`]+")
@@ -121,8 +125,12 @@ def _link_targets(tool_name, tool_input, cwd):
 def match(policy, tool_name, tool_input, cwd=None):
     """Strongest rule wins (deny over ask). The first rule of that strength is reported.
 
-    Returns None when no rule matches. The shipped rules come first, so a slow regex in an added
-    policy file cannot delay a shipped deny. With cwd, a path field of a non-Bash tool is also
+    A deny of kind path or command on a shell tool (Bash, PowerShell, Monitor) is returned as ask.
+
+    Returns None when no rule matches. The shipped rules come first and the loop stops at the
+    first deny, so a slow regex in an added policy file cannot delay a deny on a file tool or a
+    tool rule. A shell text rule only asks and an ask does not stop the loop, so such a regex can
+    delay a shipped shell ask. With cwd, a path field of a non-Bash tool is also
     matched in its resolved form (a link to a listed file).
     """
     cmd = tool_input.get("command") if tool_name == "Bash" else None
@@ -136,12 +144,19 @@ def match(policy, tool_name, tool_input, cwd=None):
     if cwd:
         paths += _link_targets(tool_name, tool_input, cwd)
     for r in policy["rules"]:
-        if rule_hit(r, tool_name, tool_input, paths) and (
-                best is None or _RANK[r["decision"]] > _RANK[best["decision"]]):
-            best = r
-            if r["decision"] == "deny":
+        if not rule_hit(r, tool_name, tool_input, paths):
+            continue
+        dec, reason = r["decision"], r["reason"]
+        # Shell text can be spelled another way, so a text match there is an ask, never a refusal.
+        # A tool rule matches the tool's name, which cannot be respelled, so it stays a deny. The
+        # change is made before ranking, so a later tool deny still wins over an earlier ask.
+        if dec == "deny" and r["kind"] != "tool" and tool_name in SHELL_TOOLS:
+            dec, reason = "ask", reason + SHELL_NOTE
+        if best is None or _RANK[dec] > _RANK[best.decision]:
+            best = Decision(dec, r["id"], reason, None)
+            if dec == "deny":
                 break
-    return best and Decision(best["decision"], best["id"], best["reason"], None)
+    return best
 
 
 def cap(policy, step):
