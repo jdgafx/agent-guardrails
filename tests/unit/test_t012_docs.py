@@ -46,7 +46,7 @@ NEEDLES = [
     (7, "T", "Now ask: `gh pr merge`, `gh release create` and `gh release delete`, `gh repo delete`, `docker push`"),
     (7, "T", "Still no rule: `rm -f`, a script that deletes files (`python3 script.py`)"),
     (8, "A", "`validate(p, schema)` walks the whole of `policy.schema.json` with a small checker"),
-    (9, "T", "that makes four controls soft: every `ask` rule, the fail-safe `ask` on internal errors, the `oversize-command` ask"),
+    (9, "T", "Every `ask` is only as strong as that answer: the `ask` rules, the fail-safe `ask` on internal errors, the `oversize-command` ask"),
     (10, "A", "## How this relates to Claude Code's own controls"),
     (11, "A", "## Trust boundary"),
     (11, "A", "Policy loading, in order; the shipped policy always loads first and added files can only add (`trusted_tools` aside):"),
@@ -100,7 +100,7 @@ NEEDLES = [
     (50, "T", "## What it protects"),
     (50, "T", "## Who or what to worry about"),
     # T-013: "Nobody has tested" claimed more than the repo can show; it now says what is true (no test here covers it).
-    (50, "T", "What a hook's `ask` does in interactive bypass mode is not tested"),
+    (50, "T", "In interactive bypass mode a hook's `ask` still stopped the command and showed a prompt (tested 2026-11-06"),
     (51, "A", "Claude Code runs one hook before a tool call (the `PreToolUse` event)"),
     (51, "A", "- **No OpenTelemetry exporter.** The log uses OpenTelemetry's field names"),
 ]

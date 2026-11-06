@@ -3,8 +3,9 @@
 One test per case of designs/agent-guardrails-T-018/design.md (## Cases), with Chris's answers:
 #568 yes (shell ask covers Bash, PowerShell, Monitor and people's own deny rules), #569 REFUSE
 (network.allowedDomains in a project file is refused like allowWrite, so case 27 loses it and case
-29 loses it from the allowed leaf keys), #570 (a) (no bypass-only deny; the README says "not
-tested" for interactive bypass and acceptEdits). Cases 44 to 46 run live (tests/live/t014_probe.py).
+29 loses it from the allowed leaf keys), #570 (a) (no bypass-only deny; T-020 tested interactive
+bypass and acceptEdits on 2026-11-06 and the README says what was seen). Cases 44 to 46 run live
+(tests/live/t014_probe.py).
 
 The cases run through the real hooks.run_pre / run_post on the shipped policy.json, with real
 temporary project and data folders and real settings files: no mocks. The audit line is read back
@@ -501,12 +502,16 @@ def test_case_40_the_mode_table():
     start = sec.index("| Where you run Claude Code")
     tab = [r for r in rows(sec[start:]) if not set(r[0]) <= set("-")]
     assert tab[0] == ["Where you run Claude Code", "What a hook's ask does", "Source"]
-    assert len(tab) - 1 == 6
+    assert len(tab) - 1 == 7
     for r in tab[1:]:
         assert r[2], r
     by = {r[0]: r for r in tab[1:]}
     bypass = next(v for k, v in by.items() if k.startswith("Interactive") and "bypass" in k)
-    assert bypass[1] == "not tested" and bypass[2] == "not tested"
+    assert "you are asked" in bypass[1] and "2026-11-06" in bypass[2] and "2.1.319" in bypass[2]
+    edits = next(v for k, v in by.items() if k.startswith("Interactive") and "acceptEdits" in k)
+    assert "you are asked" in edits[1] and "2026-11-06" in edits[2]
+    plan = next(v for k, v in by.items() if k.startswith("Interactive") and "plan" in k)
+    assert plan[1] == "not tested"
 
 
 def test_case_41_every_can_only_add_sentence_names_trusted_tools():
