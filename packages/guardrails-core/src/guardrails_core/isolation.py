@@ -156,10 +156,14 @@ def block_in_force(project_dir, policy):
 
 
 def not_active_reason(project_dir, root, why):
-    f = os.path.join(project_dir, ".claude", "settings.local.json")
-    return ("Isolation is on, but the sandbox block is not in force in %s: %s. Copy %s into %s, "
-            "or merge its \"sandbox\" key." % (f, why, os.path.join(root, "isolation",
-                                                                   "settings.local.json"), f))
+    # The merged settings do not say which file holds a key, so the reason names both files.
+    shared = os.path.join(project_dir, ".claude", "settings.json")
+    local = os.path.join(project_dir, ".claude", "settings.local.json")
+    block = os.path.join(root, "isolation", "settings.local.json")
+    return ("Isolation is on, but the sandbox block is not in force in %s or %s: %s. Fix that "
+            "setting in the file that holds it: remove it if it is a setting the block does not "
+            "allow; if a sandbox setting is missing, merge the \"sandbox\" key of %s into %s and "
+            "keep your other settings." % (shared, local, why, block, local))
 
 
 if __name__ == "__main__":

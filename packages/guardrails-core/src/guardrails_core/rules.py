@@ -142,19 +142,19 @@ def match(policy, tool_name, tool_input, cwd=None):
     if cwd:
         paths += _link_targets(tool_name, tool_input, cwd)
     for r in policy["rules"]:
-        if rule_hit(r, tool_name, tool_input, paths) and (
-                best is None or _RANK[r["decision"]] > _RANK[best["decision"]]):
-            best = r
-            if r["decision"] == "deny":
+        if not rule_hit(r, tool_name, tool_input, paths):
+            continue
+        dec, reason = r["decision"], r["reason"]
+        # Shell text can be spelled another way, so a text match there is an ask, never a refusal.
+        # A tool rule matches the tool's name, which cannot be respelled, so it stays a deny. The
+        # change is made before ranking, so a later tool deny still wins over an earlier ask.
+        if dec == "deny" and r["kind"] != "tool" and tool_name in SHELL_TOOLS:
+            dec, reason = "ask", reason + SHELL_NOTE
+        if best is None or _RANK[dec] > _RANK[best.decision]:
+            best = Decision(dec, r["id"], reason, None)
+            if dec == "deny":
                 break
-    if best is None:
-        return None
-    d = Decision(best["decision"], best["id"], best["reason"], None)
-    # Shell text can be spelled another way, so a text match there is an ask, never a refusal.
-    # A tool rule matches the tool's name, which cannot be respelled, so it stays a deny.
-    if d.decision == "deny" and best["kind"] != "tool" and tool_name in SHELL_TOOLS:
-        d = d._replace(decision="ask", reason=d.reason + SHELL_NOTE)
-    return d
+    return best
 
 
 def cap(policy, step):

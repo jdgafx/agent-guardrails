@@ -173,6 +173,21 @@ def test_case_9_added_rules_a_shell_deny_asks_a_path_deny_on_read_and_a_tool_den
     assert run("PowerShell", {"command": "ls"}, proj, data)[:2] == ("deny", "my-deny-ps")
 
 
+@pytest.mark.parametrize("tool,tin,tool_rx", [
+    ("PowerShell", {"command": "Get-Content .env"}, "^PowerShell$"),
+    ("Monitor", {"command": "cat .env"}, "^Monitor$"),
+    ("Bash", bash("cat ~/.ssh/id_rsa"), "^Bash$"),
+])
+def test_case_9b_a_tool_deny_that_comes_later_still_beats_a_shipped_shell_ask(
+        proj, data, tmp_path, monkeypatch, tool, tin, tool_rx):
+    f = tmp_path / "mine.json"
+    f.write_text(json.dumps({"version": 1, "rules": [
+        {"id": "my-tool-deny", "decision": "deny", "kind": "tool", "match": [tool_rx],
+         "reason": "not here"}]}))
+    monkeypatch.setenv("GUARDRAILS_POLICY", str(f))
+    assert run(tool, tin, proj, data)[:2] == ("deny", "my-tool-deny")
+
+
 def test_case_10_an_approved_shell_ask_leaves_a_result_line_with_the_ask(proj, data):
     assert run("Bash", bash("cat .env"), proj, data, tid="t1")[:2] == ("ask", ENV)
     raw = json.dumps({"session_id": "s", "tool_use_id": "t1", "hook_event_name": "PostToolUse",
@@ -497,3 +512,14 @@ def test_case_43_no_sentence_of_eight_words_or_more_occurs_twice():
                         repeats.append((seen[key], name, key))
                     seen[key] = name
     assert not repeats, repeats
+
+
+def test_tripwire_reason_names_both_files_and_the_merge_not_a_copy(proj, data, iso_on):
+    put_block(proj)
+    put_settings(proj, "settings.json", {"permissions": {"additionalDirectories": ["/"]}})
+    d, rule, why = status(proj, data)
+    assert (d, rule) == ("deny", "isolation-not-active")
+    for w in ("permissions.additionalDirectories", ".claude/settings.json",
+              ".claude/settings.local.json", "merge", "keep your other settings"):
+        assert w in why, (w, why)
+    assert "Copy" not in why
