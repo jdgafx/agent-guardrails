@@ -105,8 +105,9 @@ def validate(p, schema):
         if r["kind"] != "path":
             for x in r["match"]:
                 _regex_ok(x, "rule " + r["id"])
-    for x in p.get("untrusted_tools", []):
-        _regex_ok(x, "untrusted_tools")
+    for key in ("untrusted_tools", "trusted_tools"):
+        for x in p.get(key, []):
+            _regex_ok(x, key)
     for mk in p.get("injection_markers", []):
         _regex_ok(mk["pattern"], "injection marker " + mk["id"])
     return p
@@ -121,9 +122,13 @@ def _read(path):
 
 
 def _merge(base, extra):
-    """Add the rules, markers and tool names of extra; take the lower step cap. Never remove."""
+    """Add the rules, markers and tool names of extra; take the lower step cap. Never remove.
+
+    The one exception is trusted_tools: a name listed there is not scanned for injection (a log
+    warning only, never a deny or an ask).
+    """
     base["rules"] += [r for r in extra["rules"] if r not in base["rules"]]
-    for key in ("untrusted_tools", "injection_markers"):
+    for key in ("untrusted_tools", "trusted_tools", "injection_markers"):
         have = base.get(key, [])
         base[key] = have + [x for x in extra.get(key, []) if x not in have]
     cap = extra.get("step_cap", {}).get("max_calls")

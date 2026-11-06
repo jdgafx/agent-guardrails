@@ -153,12 +153,12 @@
     "(?i)^mcp__.*(?:read|get|fetch|search|list|query|browse|scrape|download)"
   ],
   "injection_markers": [
-    { "id": "ignore-previous", "pattern": "ignore\\s+(?:all\\s+)?(?:previous|prior|above)\\s+instructions" },
-    { "id": "disregard-instructions", "pattern": "disregard\\s+(?:all\\s+)?(?:previous|prior|your)\\s+instructions" },
-    { "id": "new-instructions", "pattern": "(?:new|updated)\\s+instructions\\s*:" },
-    { "id": "role-override", "pattern": "you\\s+are\\s+now\\s+(?:a|an|in)\\b" },
-    { "id": "exfil-request", "pattern": "(?:send|email|post|upload)\\s+[^.\\n]{0,60}(?:\\.env|credentials|api[_ ]key|password|secret)" },
-    { "id": "fake-system-tag", "pattern": "<\\s*/?\\s*(?:system|assistant)\\s*>" }
+    { "id": "ignore-previous", "pattern": "ignore\\s{1,3}(?:all\\s{1,3})?(?:previous|prior|above)\\s{1,3}instructions" },
+    { "id": "disregard-instructions", "pattern": "disregard\\s{1,3}(?:all\\s{1,3})?(?:previous|prior|your)\\s{1,3}instructions" },
+    { "id": "new-instructions", "pattern": "(?:new|updated)\\s{1,3}instructions\\s{0,3}:" },
+    { "id": "role-override", "pattern": "you\\s{1,3}are\\s{1,3}now\\s{1,3}(?:a|an|in)\\b" },
+    { "id": "exfil-request", "pattern": "\\b(?:send|email|post|upload)\\s{1,3}(?:(?:me|us|it|them)\\s{1,3})?(?:the|your|all|any|my|our|this|these)\\b[^.\\n]{0,60}(?:\\.env|credentials|api[_ ]key|password|secret)" },
+    { "id": "fake-system-tag", "pattern": "<\\s{0,3}(?:/\\s{0,3})?(?:system|assistant)\\s{0,3}>" }
   ],
   "audit": { "max_input_chars": 2000, "otel_field_names": true }
 }
