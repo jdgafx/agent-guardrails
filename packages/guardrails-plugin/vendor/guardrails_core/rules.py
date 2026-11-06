@@ -6,6 +6,10 @@ from collections import namedtuple
 
 Decision = namedtuple("Decision", "decision rule reason step")
 
+SHELL_TOOLS = ("Bash", "PowerShell", "Monitor")
+SHELL_NOTE = (" This is a shell command, so the guard asks instead of denying: shell text can be "
+              "spelled in ways no rule matches (README, \"What holds each threat\").")
+
 MAX_COMMAND_CHARS = 20000
 PATH_KEYS = ("file_path", "path", "notebook_path")
 _SPLIT = re.compile(r"[\s;&|<>=()\"'`]+")
@@ -121,6 +125,8 @@ def _link_targets(tool_name, tool_input, cwd):
 def match(policy, tool_name, tool_input, cwd=None):
     """Strongest rule wins (deny over ask). The first rule of that strength is reported.
 
+    A deny of kind path or command on a shell tool (Bash, PowerShell, Monitor) is returned as ask.
+
     Returns None when no rule matches. The shipped rules come first, so a slow regex in an added
     policy file cannot delay a shipped deny. With cwd, a path field of a non-Bash tool is also
     matched in its resolved form (a link to a listed file).
@@ -141,7 +147,14 @@ def match(policy, tool_name, tool_input, cwd=None):
             best = r
             if r["decision"] == "deny":
                 break
-    return best and Decision(best["decision"], best["id"], best["reason"], None)
+    if best is None:
+        return None
+    d = Decision(best["decision"], best["id"], best["reason"], None)
+    # Shell text can be spelled another way, so a text match there is an ask, never a refusal.
+    # A tool rule matches the tool's name, which cannot be respelled, so it stays a deny.
+    if d.decision == "deny" and best["kind"] != "tool" and tool_name in SHELL_TOOLS:
+        d = d._replace(decision="ask", reason=d.reason + SHELL_NOTE)
+    return d
 
 
 def cap(policy, step):

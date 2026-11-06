@@ -32,24 +32,24 @@ NEEDLES = [
     # T-013 re-keyed this to the diagram's step numbers (the data-folder check is now part of step 1), so the counter is step 3.
     # T-007 moved the rules before the counter and the data folder, so the old "even cat .env gets ask" sentences are replaced.
     (2, "A", "the rules run before anything that can fail, so a deny stays a deny"),
-    (2, "T", "A deny stays a deny in all of these (`cat .env` and a force push, tested)"),
+    (2, "T", "A deny stays a deny in all of these (a Read of `.env`, tested), and a shell command that names `.env` stays an ask"),
     # T-013 changed "allowed with no prompt" to "no ask or deny from this plugin": Claude Code's own prompts may still apply, so "no prompt" overclaimed.
     # T-006 built the fix: option words before the subcommand are seen, so the old "allowed with no ask or deny" sentence is replaced by what is true now.
-    (3, "T", "`git -C repo push --force`, `git -c key=value push -f`, `git --no-pager push -f` and `git --git-dir=x push -f` are denied."),
+    (3, "T", "`git -C repo push --force`, `git -c key=value push -f`, `git --no-pager push -f` and `git --git-dir=x push -f` ask under the force-push rule."),
     # T-013 (EGM stage 7): "The real control" was a judgement; T-014 built an opt-in isolation layer, so the sentence now says what it covers.
     (4, "T", "Isolation is the control against a determined injection. This plugin's opt-in isolation blocks shell reads of the listed secret files only; for everything else use a container or a separate user with no access to your secrets."),
     (5, "T", "### 8. Nothing controls what leaves the machine"),
     # T-008 built the secret rules: the doc names the listed credential files and what is left.
-    (6, "T", "- Your secrets, as far as a tool call names a listed credential file or folder (`.env` files, keys, cloud, SSH, git and package-registry credentials) in any field of its input or as a word of a Bash command."),
+    (6, "T", "- Your secrets, as far as a tool call names a listed credential file or folder (`.env` files, keys, cloud, SSH, git and package-registry credentials) in any field of its input (denied) or as a word of a shell command (asked)."),
     (6, "T", "credential files not on the list (`~/.kube` and `~/.docker` other than their config files, and any store not named in `policy.json`)"),
     # T-006 added rules for these; the doc now says "Now ask" and lists what is still without a rule.
     (7, "T", "Now ask: `gh pr merge`, `gh release create` and `gh release delete`, `gh repo delete`, `docker push`"),
     (7, "T", "Still no rule: `rm -f`, a script that deletes files (`python3 script.py`)"),
     (8, "A", "`validate(p, schema)` walks the whole of `policy.schema.json` with a small checker"),
-    (9, "T", "That makes four controls soft: every `ask` rule, the fail-safe `ask` on internal errors, the `oversize-command` ask"),
+    (9, "T", "that makes four controls soft: every `ask` rule, the fail-safe `ask` on internal errors, the `oversize-command` ask"),
     (10, "A", "## How this relates to Claude Code's own controls"),
     (11, "A", "## Trust boundary"),
-    (11, "A", "Policy loading, in order; the shipped policy always loads first and added files can only add:"),
+    (11, "A", "Policy loading, in order; the shipped policy always loads first and added files can only add (`trusted_tools` aside):"),
     (11, "A", "3. load policy: the shipped policy.json in the plugin folder, then the file named by the GUARDRAILS_POLICY environment variable"),
     (12, "A", "### Hook input and output"),  # T-013: was a bold run-in label, now a heading so it can be linked
     (13, "A", "(so `a/b` and `a_b` share files)"),
@@ -74,7 +74,7 @@ NEEDLES = [
     (26, "T", "You see nothing during the session; the warning is only in the log."),
     (27, "T", "- An allowed call gets no line when it starts."),
     (28, "T", "deny any path, absolute or relative, that contains those folder names (`prod/x.txt` is denied too)"),
-    (29, "T", "`echo .env >> .gitignore` and `cp .env.example .env` are both denied"),
+    (29, "T", "`echo .env >> .gitignore` and `cp .env.example .env` both ask"),
     # T-013 split "the state file" into the counter (step 3, before the rules) and the memo (step 7, after them), which the old sentence blurred.
     # T-013 dropped "or log": an allow writes no Pre log line, so only the memo can fail for it (stage 7 finding).
     (32, "A", "an allow becomes an ask, because an allowed call whose memo failed would otherwise go unrecorded"),
@@ -86,21 +86,21 @@ NEEDLES = [
     (39, "A", "- `policy.json` has `version` (must be `1`), `isolation` (true or false, default false; the opt-in isolation layer), `rules`, `step_cap`, `untrusted_tools`, `trusted_tools`, `injection_markers` and `audit`"),
     (40, "T", "- The write tools are denied on the log files, but a Bash command can still edit or delete them (limit 7)."),
     (41, "A", "If that path does not exist or is a folder, it is an error: the file is left out and the ask names it."),
-    (42, "A", "An added policy file can only add to the shipped one."),
+    (42, "A", "An added policy file can only add to the shipped one (`trusted_tools` aside)."),
     (42, "A", "After updating the plugin, check your policy file against the schema;"),
     (44, "A", "and on allow carries on with its own normal permission prompts"),
     (45, "A", "exits with an unexpected code (not 0 or 2)"),
     (46, "A", "the return value of `os.write` is not checked."),
     (47, "A", "- **No tests on Python 3.8.** The plugin folder and core are written for Python 3.8 or newer"),
     (48, "T", "Only the first 200000 characters of a result are scanned."),
-    (49, "T", "This was seen once in a real `claude -p` run"),
+    (49, "T", "This was seen in a real `claude -p` run"),
     (50, "T", "Words used below:"),
     (50, "T", "Step cap (ask after 200 calls in one session)"),
     (50, "T", "This plugin does not try to stop a skilled human attacker"),
     (50, "T", "## What it protects"),
     (50, "T", "## Who or what to worry about"),
     # T-013: "Nobody has tested" claimed more than the repo can show; it now says what is true (no test here covers it).
-    (50, "T", "No test in this repository covers what an `ask` answer does in that mode"),
+    (50, "T", "What a hook's `ask` does in interactive bypass mode is not tested"),
     (51, "A", "Claude Code runs one hook before a tool call (the `PreToolUse` event)"),
     (51, "A", "- **No OpenTelemetry exporter.** The log uses OpenTelemetry's field names"),
 ]

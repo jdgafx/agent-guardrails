@@ -262,9 +262,12 @@ def test_case_40_a_settings_file_that_cannot_be_read_denies(proj, data, iso_on):
         "deny", "isolation-not-active")
 
 
-def test_case_41_allowed_domains_are_allowed(proj, data, iso_on):
+def test_case_41_allowed_domains_are_refused(proj, data, iso_on):
+    # T-018 (Chris, #569): a project file could ship a host list, so it is refused like allowWrite.
     put_block(proj, lambda sb: sb.update(network={"allowedDomains": ["github.com"]}))
-    assert pre("Bash", {"command": "git status"}, proj, data)[0] == "allow"
+    d, rule, why = pre("Bash", {"command": "git status"}, proj, data)
+    assert (d, rule) == ("deny", "isolation-not-active")
+    assert "sandbox.network.allowedDomains" in why
 
 
 def test_case_41_the_block_in_the_shared_file_counts_too(proj, data, iso_on):
@@ -278,12 +281,13 @@ def test_case_42a_a_push_still_asks(proj, data, iso_on):
         "ask", "ask-git-push")
 
 
-def test_case_42b_a_rule_deny_stays_a_rule_deny(proj, data, iso_on):
+def test_case_42b_a_rule_ask_on_shell_text_and_the_tripwire_deny(proj, data, iso_on):
+    # T-018: a shell text match asks; with no block the tripwire deny beats that ask
     put_block(proj)
-    assert pre("Bash", {"command": "cat .env"}, proj, data)[:2] == ("deny", "deny-env-files")
-    # and without the block the rule deny is still the rule's, not the tripwire's
+    assert pre("Bash", {"command": "cat .env"}, proj, data)[:2] == ("ask", "deny-env-files")
     (proj / ".claude" / "settings.local.json").unlink()
-    assert pre("Bash", {"command": "cat .env"}, proj, data)[:2] == ("deny", "deny-env-files")
+    assert pre("Bash", {"command": "cat .env"}, proj, data)[:2] == (
+        "deny", "isolation-not-active")
 
 
 def test_case_42c_the_tripwire_checks_only_the_shell_tools(proj, data, iso_on):

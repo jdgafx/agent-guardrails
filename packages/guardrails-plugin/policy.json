@@ -39,7 +39,7 @@
       "decision": "deny",
       "kind": "command",
       "match": ["\\bgit(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+push\\b(?:(?!\\bgit(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+push\\b)[^\\n;&|])*(?:\\s--force(?:-with-lease)?\\b|\\s-[a-zA-Z]*f[a-zA-Z]*(?=[\\s;&|)]|$)|\\s\\+\\S)"],
-      "reason": "Force pushes rewrite shared history and are blocked."
+      "reason": "Force pushes rewrite shared history."
     },
     {
       "id": "ask-rm-recursive",

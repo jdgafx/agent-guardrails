@@ -1,0 +1,1 @@
+{"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "python3 @T@/hook.py ask"}]}]}}

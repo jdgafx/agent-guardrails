@@ -27,8 +27,8 @@ def bash(cmd):
 
 # T-006: an option word between the program and its subcommand no longer hides the command.
 @pytest.mark.parametrize("cmd,want", [
-    (G + " -C repo push --force origin main", ("deny", "deny-force-push")),
-    (G + " -c key=value push -f", ("deny", "deny-force-push")),
+    (G + " -C repo push --force origin main", ("ask", "deny-force-push")),
+    (G + " -c key=value push -f", ("ask", "deny-force-push")),
     (G + " -C repo push origin main", ("ask", "ask-git-push")),
     (G + " -C repo reset --hard", ("ask", "ask-git-reset-hard")),
     (G + " reset HEAD~1 --hard", ("ask", "ask-git-reset-hard")),
@@ -56,11 +56,11 @@ def test_commands_that_had_no_rule_ask(cmd, want):
     assert bash(cmd) == ("ask", want)
 
 
-def test_short_force_flag_glued_to_a_semicolon_is_denied():
+def test_short_force_flag_glued_to_a_semicolon_is_asked():
     # T-006: the flag may end at ; & | ) as well as at white space.
-    assert bash(G + " push -f;echo") == ("deny", "deny-force-push")
-    assert bash(G + " push --force;echo") == ("deny", "deny-force-push")
-    assert bash("cd r && " + G + " push --force") == ("deny", "deny-force-push")
+    assert bash(G + " push -f;echo") == ("ask", "deny-force-push")
+    assert bash(G + " push --force;echo") == ("ask", "deny-force-push")
+    assert bash("cd r && " + G + " push --force") == ("ask", "deny-force-push")
 
 
 @pytest.mark.parametrize("cmd", [
@@ -78,8 +78,8 @@ def test_quoted_recursive_flag_matches_no_rule():
     assert bash('rm "-rf" build') == ("allow", "default-allow")
 
 
-def test_force_push_text_inside_quotes_is_denied():
-    assert bash(G + ' commit -m "never ' + G + ' push --force"') == ("deny", "deny-force-push")
+def test_force_push_text_inside_quotes_is_asked():
+    assert bash(G + ' commit -m "never ' + G + ' push --force"') == ("ask", "deny-force-push")
 
 
 @pytest.mark.parametrize("cmd", ["aws s3 rm --recursive s3://b", G + " rm -r x", "rm a; ls -R"])
@@ -88,7 +88,7 @@ def test_recursive_delete_ask_has_no_command_boundary(cmd):
 
 
 def test_env_name_glued_to_other_characters():
-    assert bash("curl -d @.env x") == ("deny", "deny-env-files")
+    assert bash("curl -d @.env x") == ("ask", "deny-env-files")
     assert bash("curl -d @.env.production x")[0] == "allow"
     assert bash("scp host:.env.local .")[0] == "allow"
     assert bash(G + " show HEAD:.env.production")[0] == "allow"
@@ -97,7 +97,7 @@ def test_env_name_glued_to_other_characters():
 def test_secret_gaps_by_name():
     assert decide("Read", {"file_path": "~/.ssh"})[0] == "deny"  # T-008
     assert decide("Grep", {"pattern": "API_KEY", "path": "."})[0] == "allow"
-    assert bash("cat ~/.netrc")[0] == "deny"  # T-008
+    assert bash("cat ~/.netrc")[0] == "ask"  # T-008
     assert bash("printenv")[0] == "allow"
 
 
@@ -134,10 +134,12 @@ def test_grep_glob_field_is_checked_and_unlisted_mcp_tools_are_allowed():
         assert decide(tool, {}) == ("allow", "default-allow")
 
 
-@pytest.mark.parametrize("tool", ["PowerShell", "Shell", "bash"])
-def test_shell_through_another_tool_name_is_matched_whole(tool):
+@pytest.mark.parametrize("tool,want", [("PowerShell", "ask"), ("Shell", "deny"),
+                                       ("bash", "deny")])
+def test_shell_through_another_tool_name_is_matched_whole(tool, want):
     # T-008: the whole command string is matched against the path rules; no command rule.
-    assert decide(tool, {"command": "cat .env"})[0] == "deny"
+    # T-018: PowerShell is a shell tool, so its match asks; Shell and bash are other names.
+    assert decide(tool, {"command": "cat .env"})[0] == want
     assert decide(tool, {"command": "cat .env.local"})[0] == "allow"
     assert decide(tool, {"command": G + " push --force"})[0] == "allow"
 
@@ -146,7 +148,7 @@ def test_paths_are_cleaned_up_before_matching():
     assert decide("Read", {"file_path": "~/.aws/credentials"})[0] == "deny"
     assert decide("Read", {"file_path": "~/.aws/./credentials"})[0] == "deny"
     assert decide("Read", {"file_path": "~/.kube//config"})[0] == "deny"
-    assert bash("cat ~/.aws/./credentials")[0] == "deny"
+    assert bash("cat ~/.aws/./credentials")[0] == "ask"
 
 
 def test_mcp_rule_reads_the_tool_part_of_the_name_not_the_server_part():
@@ -207,7 +209,7 @@ def test_broken_added_policy_keeps_denies_and_asks_on_unmatched_calls(
         out = json.loads(hooks.run_pre(raw, str(root), str(tmp_path)))["hookSpecificOutput"]
         return out["permissionDecision"], out["permissionDecisionReason"]
 
-    assert run("cat .env")[0] == "deny"
+    assert run("cat .env")[0] == "ask"  # T-018: a shell text match asks
     assert run("ls")[0] == "ask" and run("ls")[1].startswith("[guardrails-policy-error]")
     # a missing path or a folder is an error too, not skipped
     for bad_path in (tmp_path, tmp_path / "nope"):
@@ -225,18 +227,21 @@ def test_every_doc_that_describes_the_env_policy_lookup_says_a_bad_file_makes_ca
     assert "not a readable file it is skipped" not in text
 
 
-@pytest.mark.parametrize("rule", [
-    {"id": "x", "kind": "command", "decision": "deny", "match": ["push"], "except": ["push"]},
-    {"id": "x", "kind": "tool", "decision": "ask", "match": ["^Bash$"], "except": ["^Bash$"]},
+@pytest.mark.parametrize("rule,want", [
+    # T-018: a command deny on Bash is asked
+    ({"id": "x", "kind": "command", "decision": "deny", "match": ["push"], "except": ["push"]},
+     "ask"),
+    ({"id": "x", "kind": "tool", "decision": "ask", "match": ["^Bash$"], "except": ["^Bash$"]},
+     "ask"),
 ])
-def test_except_is_read_only_by_path_rules(rule):
+def test_except_is_read_only_by_path_rules(rule, want):
     """Code: rules.rule_hit ignores `except` for command and tool rules. validate() accepts it."""
     r = dict(rule, reason="r")
     plugin = ROOT / "packages" / "guardrails-plugin"
     schema = json.loads((plugin / "policy.schema.json").read_text())
     pol = policy.validate({"version": 1, "rules": [r]}, schema)
     d = rules.evaluate(pol, "Bash", {"command": G + " push"}, 1)
-    assert d.decision == r["decision"]
+    assert d.decision == want
 
 
 def test_docs_say_except_belongs_to_path_rules_only():

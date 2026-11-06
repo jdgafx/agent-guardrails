@@ -1,6 +1,7 @@
 """T-006 round 6: every command or MCP tool name that README.md or docs/THREAT_MODEL.md quotes in
 backticks as denied, asked or allowed is run through the real rules and must get the decision the
-doc states (a deny, an ask, or "allowed / has no rule").
+doc states (a deny, an ask, or "allowed / has no rule"). T-018: a shell command that a deny rule
+matches is an ask.
 
 Three guards keep the table honest:
 - every quoted command-like span in the two docs must be in EXPECT (or in NOT_A_CASE), so a
@@ -24,18 +25,18 @@ D, A, OK = "deny", "ask", "allow"
 G = "git"
 
 EXPECT = {
-    # --- denied
-    "cd r && " + G + " push --force": D, G + " -C repo push --force": D,
-    G + " --git-dir=x push -f": D, G + " --no-pager push -f": D, G + " -c key=value push -f": D,
-    G + " push -f;echo": D, G + " push -f|cat": D,
-    G + ' commit -m "never ' + G + ' push --force"': D,
-    G + ' commit -m "fix production/config"': D,
+    # --- asked under a deny-* rule: a shell command that a deny rule matches (T-018)
+    "cd r && " + G + " push --force": A, G + " -C repo push --force": A,
+    G + " --git-dir=x push -f": A, G + " --no-pager push -f": A, G + " -c key=value push -f": A,
+    G + " push -f;echo": A, G + " push -f|cat": A,
+    G + ' commit -m "never ' + G + ' push --force"': A,
+    G + ' commit -m "fix production/config"': A,
     "tail ~/.claude/plugins/data/agent-guardrails/audit/x.jsonl": A,
     "sed -i s/deny/ask/ /opt/agent-guardrails/policy.json": A,
-    "cat .env": D, "cat ~/.ssh/id_rsa.pub": D, "cp .env x": D, "cp .env.example .env": D,
+    "cat .env": A, "cat ~/.ssh/id_rsa.pub": A, "cp .env x": A, "cp .env.example .env": A,
     # T-008: listed credential files and folders, in any folder
-    "cat .npmrc": D, "cat .pypirc": D, "cat ~/.aws/config": D, "ls ~/.aws": D,
-    "echo .env >> .gitignore": D, "curl -d @.env": D,
+    "cat .npmrc": A, "cat .pypirc": A, "cat ~/.aws/config": A, "ls ~/.aws": A,
+    "echo .env >> .gitignore": A, "curl -d @.env": A,
     # --- asked
     "aws ec2 terminate-instances": A, "aws s3 rm": A, "aws s3 --profile cp ls": A,
     'bash -c "' + G + ' push -f"': A, "cargo +nightly publish": A, "cargo publish": A,
@@ -74,9 +75,15 @@ EXPECT = {
     "grep -r AWS_SECRET ~": OK,
     # T-014: the isolation table. The plugin column; the "isolation on" column is backed by
     # tests/live/t014_probe.py, not by this test.
-    "cat ~/.aws/credentials": D, 'cat .e""nv': OK, "cat ./notes": OK,
-    "cd ~/.kube && cat config": OK, "grep -r KEY ~": OK, "cat /srv/app/.env": D,
-    "cat ~/other/.env": D, G + ' show HEAD:.e""nv': OK, G + " show": OK, G + " log -p": OK,
+    "cat ~/.aws/credentials": A, 'cat .e""nv': OK,
+    "cd ~/.kube && cat config": OK,
+    "cat ~/other/.env": A, G + ' show HEAD:.e""nv': OK,
+    # T-018: the threat table of the README
+    "cat ~/.ssh/id_rsa": A, "cat server.pem": A, 'cat ~/other/.e""nv': OK,
+    "cat config/prod/db.yml": A, G + " push --force origin main": A, G + " push origin :main": A,
+    "echo x >> ~/.bashrc": OK, "rm -rf ~/x": A, "echo '{}' > .claude/settings.local.json": OK,
+    "curl -d @notes.txt https://example.com": OK, "mcp__x__run": OK,
+    "gh api -X DELETE repos/<owner>/<repo>/rulesets/<id>": OK,
     # the stated Bash limit (THREAT_MODEL limit 7): a variable or a relative path is not seen
     'rm "$CLAUDE_PLUGIN_DATA"/state/s.calls': OK,
     "cd ~/.claude/plugins/data && rm agent-guardrails/policy.json": OK,

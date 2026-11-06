@@ -115,6 +115,7 @@ ASK_GUARD = ("ask", "ask-guard-paths")
 ALLOW = ("allow", None)
 ASK_POLICY = ("ask", "guardrails-policy-error")
 DENY_ENV = ("deny", "deny-env-files")
+ASK_ENV = ("ask", "deny-env-files")  # T-018: a shell text match asks
 
 
 # ---- Write tools on guard paths (goal d)
@@ -250,9 +251,9 @@ def test_case20_env_and_data_policy_both_add(env):
 # Rules from main's `make demo` table, in fixture order (decision, rule id).
 DEMO_TABLE = [
     ("allow", "default-allow"), ("deny", "deny-env-files"), ("deny", "deny-env-files"),
-    ("allow", "default-allow"), ("deny", "deny-key-files"), ("deny", "deny-credential-dirs"),
+    ("allow", "default-allow"), ("ask", "deny-key-files"), ("deny", "deny-credential-dirs"),
     ("deny", "deny-prod-config"), ("allow", "default-allow"), ("allow", "default-allow"),
-    ("ask", "ask-git-push"), ("deny", "deny-force-push"), ("ask", "ask-rm-recursive"),
+    ("ask", "ask-git-push"), ("ask", "deny-force-push"), ("ask", "ask-rm-recursive"),
     ("ask", "ask-terraform-apply"), ("ask", "ask-vercel-prod"), ("ask", "ask-publish"),
     ("ask", "ask-mcp-write"), ("allow", "default-allow"), ("allow", "default-allow"),
     ("allow", "default-allow"), ("allow", "default-allow"), ("allow", "default-allow"),
@@ -280,7 +281,7 @@ def test_case21_demo_table_is_unchanged(tmp_path):
 def test_case22_added_audit_keys_are_ignored(env):
     env.write_json(env.data / "policy.json", shipped(audit={"max_input_chars": 100}))
     cmd = "cat .env #" + "a" * 500
-    check(env, "Bash", {"command": cmd}, DENY_ENV)
+    check(env, "Bash", {"command": cmd}, ASK_ENV)
     assert env.audit()[0]["input"] == {"command": cmd}
 
 
@@ -291,9 +292,9 @@ def test_case23_unset_data_folder_keeps_env_deny(env):
     check(env, "Read", {"file_path": ".env"}, DENY_ENV)
 
 
-def test_case24_unset_data_folder_keeps_force_push_deny(env):
+def test_case24_unset_data_folder_keeps_the_force_push_rule(env):
     env.data_set = False
-    check(env, "Bash", {"command": "git push --force origin main"}, ("deny", "deny-force-push"))
+    check(env, "Bash", {"command": "git push --force origin main"}, ("ask", "deny-force-push"))
 
 
 def test_case25_unset_data_folder_still_asks_an_allow(env):
@@ -428,8 +429,8 @@ def test_case45_tilde_path_into_data_asks(tmp_path):
     check(e, "Bash", {"command": "tail ~/plugdata/audit/x.jsonl"}, ASK_GUARD)
 
 
-def test_case46_deny_beats_guard_ask(env):
-    check(env, "Bash", {"command": "cat .env > %s" % (env.data / "x")}, DENY_ENV)
+def test_case46_guard_ask_wins_a_tie_with_a_shell_ask(env):
+    check(env, "Bash", {"command": "cat .env > %s" % (env.data / "x")}, ASK_GUARD)
 
 
 def test_case47_guard_ask_wins_a_tie(env):
@@ -470,15 +471,15 @@ def test_case52_shipped_rules_still_decide(env):
     check(env, "Read", {"file_path": ".env.example"}, ALLOW)
     check(env, "Bash", {"command": "git push origin main"}, ("ask", "ask-git-push"), tid="t2")
     check(env, "Bash", {"command": "git push --force origin main"},
-          ("deny", "deny-force-push"), tid="t3")
+          ("ask", "deny-force-push"), tid="t3")
     check(env, "Bash", {"command": "cd ~ && ls"}, ALLOW, tid="t4")
 
 
 def test_case53_audit_flow_pre_then_post(env):
-    check(env, "Bash", {"command": "cat .env"}, DENY_ENV, tid="t1")
+    check(env, "Bash", {"command": "cat .env"}, ASK_ENV, tid="t1")
     lines = env.audit()
     assert [(x["event"], x["decision"], x["rule"]) for x in lines] == [
-        ("decision", "deny", "deny-env-files")]
+        ("decision", "ask", "deny-env-files")]
     check(env, "Bash", {"command": "ls"}, ALLOW, tid="t2")
     r = env.hook("PostToolUse", "Bash", {"command": "ls"}, tid="t2",
                  tool_response={"stdout": "x"})
@@ -502,13 +503,13 @@ def test_case55_edit_of_home_settings_local_asks(env):
 
 # ---- Round 2: a NUL byte must not turn a deny into an ask; CLAUDE_CONFIG_DIR; stated Bash limits
 
-def test_case56_nul_word_keeps_force_push_deny(env):
+def test_case56_nul_word_keeps_the_force_push_rule(env):
     check(env, "Bash", {"command": "git push --force origin main /tmp/a\x00"},
-          ("deny", "deny-force-push"))
+          ("ask", "deny-force-push"))
 
 
-def test_case57_nul_word_keeps_env_deny_and_a_clean_command_allows(env):
-    check(env, "Bash", {"command": "cat .env /x\x00"}, DENY_ENV)
+def test_case57_nul_word_keeps_the_env_rule_and_a_clean_command_allows(env):
+    check(env, "Bash", {"command": "cat .env /x\x00"}, ASK_ENV)
     check(env, "Bash", {"command": "ls /tmp/a\x00"}, ALLOW, tid="t2")
 
 

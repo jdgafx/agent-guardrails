@@ -17,18 +17,18 @@ ISOLATED_RULES = ("deny-env-files", "deny-credential-dirs")
 # Project anywhere below, directly in the home folder, directly in ~/.config. Never `~/**` or
 # `/**`: that made every sandboxed command take 100 to 187 s on a large home folder.
 ANCHORS = ("./**/", "~/", "~/.config/")
-SHELL_TOOLS = ("Bash", "PowerShell", "Monitor")
+SHELL_TOOLS = rules.SHELL_TOOLS
 
 _FLAGS = (("enabled", True), ("failIfUnavailable", True), ("allowUnsandboxedCommands", False),
           ("autoAllowBashIfSandboxed", False))
 # The keys a project may have under "sandbox" and still count as the block: the block's own, and
-# the ones that can only narrow it or add hosts. Any other key (excludedCommands,
-# network.allowAllUnixSockets, enableWeakerNestedSandbox, one a later Claude Code adds) does not.
+# the ones that can only narrow it. Any other key does not: allowWrite and network.allowedDomains
+# widen it, and so do excludedCommands, network.allowAllUnixSockets, enableWeakerNestedSandbox and
+# a key a later Claude Code adds.
 _ALLOWED = {"enabled": None, "failIfUnavailable": None, "allowUnsandboxedCommands": None,
             "autoAllowBashIfSandboxed": None,
-            "filesystem": {"denyRead": None, "allowRead": None, "allowWrite": None,
-                           "denyWrite": None},
-            "network": {"allowedDomains": None, "deniedDomains": None}}
+            "filesystem": {"denyRead": None, "allowRead": None, "denyWrite": None},
+            "network": {"deniedDomains": None}}
 
 
 def _core(glob):
@@ -73,7 +73,7 @@ def _read(path):
         raise ValueError("%s cannot be read as JSON (%s)" % (path, e)) from None
     if not isinstance(obj, dict) or not isinstance(obj.get("sandbox", {}), dict):
         raise ValueError("%s: \"sandbox\" must be an object" % path)
-    return obj.get("sandbox", {})
+    return obj
 
 
 def _merge(base, over):
@@ -102,16 +102,37 @@ def _unknown(obj, allowed, where="sandbox"):
     return None
 
 
+def _write_grants(perms):
+    """The two permission settings that, per the Claude Code docs, add sandbox write paths."""
+    if not isinstance(perms, dict):
+        return False, "permissions must be an object"
+    if "additionalDirectories" in perms:
+        return False, ("permissions.additionalDirectories widens where a sandboxed command may "
+                       "write")
+    allow = perms.get("allow", [])
+    if not isinstance(allow, list):
+        return False, "permissions.allow must be a list"
+    for entry in allow:
+        # a permission rule's tool name is the text before "(": no path is matched here
+        if isinstance(entry, str) and entry.split("(", 1)[0].strip() == "Edit":
+            return False, ("permissions.allow holds %s, which widens where a sandboxed command "
+                           "may write" % entry)
+    return True, ""
+
+
 def block_in_force(project_dir, policy):
     """(True, "") when the project's settings files hold the block, else (False, first failure).
 
     Reads `.claude/settings.json` and `.claude/settings.local.json` of project_dir and merges
-    them. An unreadable file, bad JSON or any other trouble is a failure, never a pass.
+    them. Under "sandbox" only the keys of `_ALLOWED` pass. Outside it, the settings that add
+    sandbox write paths (`permissions.additionalDirectories`, `Edit` allow rules) fail. An
+    unreadable file, bad JSON or any other trouble is a failure, never a pass.
     """
     try:
-        sb = {}
+        merged = {}
         for name in rules.SETTINGS:  # shared first, so the local file wins
-            sb = _merge(sb, _read(os.path.join(project_dir, ".claude", name)))
+            merged = _merge(merged, _read(os.path.join(project_dir, ".claude", name)))
+        sb = merged.get("sandbox", {})
         want = sandbox_block(policy)["sandbox"]
         for k, v in _FLAGS:
             if sb.get(k) is not v:
@@ -129,7 +150,7 @@ def block_in_force(project_dir, policy):
         for entry in fs.get("allowRead", []):
             if entry not in want["filesystem"]["allowRead"]:
                 return False, "sandbox.filesystem.allowRead holds %s, not in the block" % entry
-        return True, ""
+        return _write_grants(merged.get("permissions", {}))
     except Exception as e:  # an unchecked shell call is the case this layer exists to stop
         return False, "%s: %s" % (type(e).__name__, e)
 
