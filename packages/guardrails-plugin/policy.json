@@ -21,8 +21,10 @@
       "id": "deny-credential-dirs",
       "decision": "deny",
       "kind": "path",
-      "match": ["*/.aws/credentials", "*/.ssh/*", "*/.kube/config", "*/.docker/config.json"],
-      "reason": "Cloud and SSH credentials are off limits."
+      "match": ["*/.aws", "*/.aws/*", "*/.ssh", "*/.ssh/*", "*/.kube/config", "*/.docker/config.json",
+                ".netrc", ".git-credentials", ".npmrc", ".pypirc", "*/gh/hosts.yml",
+                "*/.config/gcloud", "*/.config/gcloud/*", "application_default_credentials.json"],
+      "reason": "Credential files and folders (cloud, SSH, git, package registries) are off limits."
     },
     {
       "id": "deny-prod-config",

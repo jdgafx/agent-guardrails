@@ -33,6 +33,8 @@ EXPECT = {
     "tail ~/.claude/plugins/data/agent-guardrails/audit/x.jsonl": A,
     "sed -i s/deny/ask/ /opt/agent-guardrails/policy.json": A,
     "cat .env": D, "cat ~/.ssh/id_rsa.pub": D, "cp .env x": D, "cp .env.example .env": D,
+    # T-008: listed credential files and folders, in any folder
+    "cat .npmrc": D, "cat .pypirc": D, "cat ~/.aws/config": D, "ls ~/.aws": D,
     "echo .env >> .gitignore": D, "curl -d @.env": D,
     # --- asked
     "aws ec2 terminate-instances": A, "aws s3 rm": A, "aws s3 --profile cp ls": A,
@@ -66,7 +68,10 @@ EXPECT = {
     "grep -r API_KEY .": OK, "helm list": OK, "kubectl patch": OK, "printenv": OK, "env": OK,
     "python script.py": OK, "python3 script.py": OK, 'rm "-rf" build': OK, "rm -f": OK,
     "scp host:.env.local .": OK, "curl -d @.env.production": OK, "cat config/*": OK,
-    "cat ~/.aws/./credentials": OK, "ls": OK,
+    "ls": OK,
+    # T-008: the stated limits of the secret rules (a name that is not spelled, a parent folder)
+    "cat .n*rc": OK, "cd ~/.config/gh && cat hosts.yml": OK,
+    "grep -r AWS_SECRET ~": OK,
     # the stated Bash limit (THREAT_MODEL limit 7): a variable or a relative path is not seen
     'rm "$CLAUDE_PLUGIN_DATA"/state/s.calls': OK,
     "cd ~/.claude/plugins/data && rm agent-guardrails/policy.json": OK,

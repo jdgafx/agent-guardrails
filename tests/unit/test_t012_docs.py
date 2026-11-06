@@ -39,8 +39,9 @@ NEEDLES = [
     # T-013 (EGM stage 7): "The real control" was a judgement; now "Isolation is the control ... this plugin does not provide it".
     (4, "T", "Isolation is the control against a determined injection, and this plugin does not provide it: use a container or a separate user with no access to your secrets."),
     (5, "T", "### 8. Nothing controls what leaves the machine"),
-    (6, "T", "- Your secrets, as far as they sit in files with the listed names (`.env`, keys, cloud credentials)."),
-    (6, "T", "credential files not on the list (`~/.netrc`, `~/.npmrc`, `~/.pypirc`, `~/.git-credentials`, `~/.config/gh/hosts.yml`, `~/.config/gcloud`)"),
+    # T-008 built the secret rules: the doc names the listed credential files and what is left.
+    (6, "T", "- Your secrets, as far as a tool call names a listed credential file or folder (`.env` files, keys, cloud, SSH, git and package-registry credentials) in any field of its input or as a word of a Bash command."),
+    (6, "T", "credential files not on the list (`~/.kube` and `~/.docker` other than their config files, and any store not named in `policy.json`)"),
     # T-006 added rules for these; the doc now says "Now ask" and lists what is still without a rule.
     (7, "T", "Now ask: `gh pr merge`, `gh release create` and `gh release delete`, `gh repo delete`, `docker push`"),
     (7, "T", "Still no rule: `rm -f`, a script that deletes files (`python3 script.py`)"),
