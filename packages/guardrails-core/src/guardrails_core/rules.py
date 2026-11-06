@@ -97,11 +97,33 @@ def rule_hit(rule, tool_name, tool_input, paths=None):
     return any(path_hit(p, rule) for p in paths)
 
 
-def match(policy, tool_name, tool_input):
+def _link_targets(tool_name, tool_input, cwd):
+    """The resolved form of each path field of a non-Bash tool, where a link was followed.
+
+    A path with no link in it is skipped, so a project under a folder named "production" does not
+    get its plain files denied. The check only adds denies (the link check of isolation).
+    """
+    if tool_name == "Bash":
+        return []
+    base = _real("", cwd)
+    out = []
+    for p in _named_paths(tool_name, tool_input):
+        real = _real(p, cwd)
+        try:
+            plain = os.path.normpath(os.path.join(base, os.path.expanduser(p)))
+        except ValueError:
+            continue
+        if real is not None and real != plain:
+            out.append(real)
+    return out
+
+
+def match(policy, tool_name, tool_input, cwd=None):
     """Strongest rule wins (deny over ask). The first rule of that strength is reported.
 
     Returns None when no rule matches. The shipped rules come first, so a slow regex in an added
-    policy file cannot delay a shipped deny.
+    policy file cannot delay a shipped deny. With cwd, a path field of a non-Bash tool is also
+    matched in its resolved form (a link to a listed file).
     """
     cmd = tool_input.get("command") if tool_name == "Bash" else None
     if isinstance(cmd, str) and len(cmd) > MAX_COMMAND_CHARS:
@@ -111,6 +133,8 @@ def match(policy, tool_name, tool_input):
                         % MAX_COMMAND_CHARS, None)
     best = None
     paths = candidate_paths(tool_name, tool_input)  # once per call, not once per rule
+    if cwd:
+        paths += _link_targets(tool_name, tool_input, cwd)
     for r in policy["rules"]:
         if rule_hit(r, tool_name, tool_input, paths) and (
                 best is None or _RANK[r["decision"]] > _RANK[best["decision"]]):

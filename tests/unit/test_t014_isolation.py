@@ -391,7 +391,7 @@ def test_case_46_false_files_leave_it_off(tmp_path, data, monkeypatch, env_text)
 
 @pytest.mark.parametrize("text", [
     '{"version": 1, "isolation": "yes"}', '{"version": 1, "isolation": 1}',
-    '{"version": 1, "rules": []}', '{"version": 1}', '{"isolation": true}'])
+    '{"version": 1, "rules": []}', '{"isolation": true}'])
 def test_case_46_a_wrong_file_is_left_out_with_a_message(tmp_path, data, monkeypatch, text):
     pol, errors = _load(tmp_path, data, monkeypatch, env_text=text)
     assert len(errors) == 1 and pol["isolation"] is False

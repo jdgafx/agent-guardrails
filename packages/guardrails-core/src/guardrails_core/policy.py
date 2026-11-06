@@ -99,7 +99,7 @@ def validate(p, schema):
     check_schema(schema)
     _walk(p, schema, "policy")
     seen = set()
-    for r in p["rules"]:
+    for r in p.get("rules", []):
         _need(r["id"] not in seen, "rule ids must be unique: %s" % r["id"])
         seen.add(r["id"])
         if r["kind"] != "path":
@@ -125,9 +125,10 @@ def _merge(base, extra):
     """Add the rules, markers and tool names of extra; take the lower step cap. Never remove.
 
     The one exception is trusted_tools: a name listed there is not scanned for injection (a log
-    warning only, never a deny or an ask).
+    warning only, never a deny or an ask). "isolation" only goes one way: true in any file wins.
     """
-    base["rules"] += [r for r in extra["rules"] if r not in base["rules"]]
+    base["rules"] += [r for r in extra.get("rules", []) if r not in base["rules"]]
+    base["isolation"] = bool(base.get("isolation")) or extra.get("isolation") is True
     for key in ("untrusted_tools", "trusted_tools", "injection_markers"):
         have = base.get(key, [])
         base[key] = have + [x for x in extra.get(key, []) if x not in have]
@@ -155,6 +156,7 @@ def load_policy(root, data):
     schema = _read(os.path.join(root, "policy.schema.json"))
     try:
         pol = validate(_read(where), schema)
+        _need("rules" in pol, "missing key 'rules'")
         _need("max_calls" in pol.get("step_cap", {}), "step_cap.max_calls is required")
     except PolicyError as e:
         raise PolicyError("%s: %s" % (where, e)) from None
