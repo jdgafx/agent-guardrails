@@ -1,12 +1,14 @@
 """The two hook entry points. The plugin scripts call run_pre and run_post and nothing else.
 
-Fail-safe rule: PreToolUse fails closed to "ask" (never to "allow"). PostToolUse only logs,
-so it raises and the script reports a non-blocking error.
+Fail-safe rule: PreToolUse fails closed to "ask" (never to "allow"). PostToolUse logs, so it
+raises and the script reports a non-blocking error. With isolation on, PostToolUse also replaces
+shaped secrets in shell output and then prints the changed output (a failed log write travels
+beside it).
 """
 import json
 import os
 
-from . import audit, injection, rules
+from . import audit, injection, isolation, redact, rules
 from .policy import load_policy
 
 
@@ -80,6 +82,19 @@ def _count(data, p):
         return None
 
 
+def _tripwire(pol, root, cwd):
+    """Deny when isolation is on and the sandbox block is not in the project's settings files."""
+    project = os.environ.get("CLAUDE_PROJECT_DIR") or cwd
+    try:
+        ok, why = isolation.block_in_force(project, pol)
+    except Exception as e:
+        ok, why = False, "%s: %s" % (type(e).__name__, e)
+    if ok:
+        return None
+    return rules.Decision("deny", "isolation-not-active",
+                          isolation.not_active_reason(project, root, why), None)
+
+
 def run_pre(raw, root, data):
     """Return the text to print on stdout. Empty text means allow (normal prompts still apply).
 
@@ -105,7 +120,10 @@ def run_pre(raw, root, data):
                 _record(data, p, d, {})
                 return pre_json(d.decision, "[%s] %s" % (d.rule, d.reason))
             return _logged_error_ask(data, p, e, _count(data, p))
-        d = rules.stronger(guard, rules.match(pol, tool, tin))
+        on = pol.get("isolation") is True
+        d = rules.stronger(guard, rules.match(pol, tool, tin, cwd if on else None))
+        if on and tool in isolation.SHELL_TOOLS:
+            d = rules.stronger(d, _tripwire(pol, root, cwd))
         if d is None and errors:
             d = rules.Decision("ask", "guardrails-policy-error",
                                "An added policy file was left out, so its rules are off (the "
@@ -127,14 +145,39 @@ def run_pre(raw, root, data):
 
 
 def run_post(raw, root, data):
-    """Write one audit line for a call that ran. Raises on error (the script reports it)."""
+    """Write one audit line for a call that ran. Returns the text to print (usually empty).
+
+    With isolation on, shaped secrets in the stdout and stderr of a shell tool are replaced and
+    the changed output is returned as JSON. A failed log write is raised, unless output was
+    changed: then it goes into the JSON as a systemMessage, so the redaction is not lost.
+    """
     p = _parse(raw)
-    _need_data(data)
     pol, _ = load_policy(root, data)
+    resp = p["tool_response"] if "tool_response" in p else p.get("error", "")
+    changed = None
+    if pol.get("isolation") is True and p["tool_name"] in isolation.SHELL_TOOLS:
+        new = redact.redact_fields(resp, ("stdout", "stderr"))
+        changed = new if new != resp else None
+    err = None
+    try:
+        _need_data(data)
+        _log_result(p, pol, data, resp)
+    except Exception as e:
+        err = e
+    if changed is None:
+        if err:
+            raise err
+        return ""
+    out = {"hookSpecificOutput": {"hookEventName": "PostToolUse", "updatedToolOutput": changed}}
+    if err:
+        out["systemMessage"] = "guardrails audit failed: %s" % err
+    return json.dumps(out)
+
+
+def _log_result(p, pol, data, resp):
     sid, tid, tool = p.get("session_id", "unknown"), p.get("tool_use_id"), p["tool_name"]
     prior = audit.recall_decision(data, sid, tid)
     failed = p.get("hook_event_name") == "PostToolUseFailure"
-    resp = p["tool_response"] if "tool_response" in p else p.get("error", "")
     warnings, cut = injection.scan(pol, resp) if injection.is_scanned(pol, tool) else ([], False)
     bad = failed or (isinstance(resp, dict) and (resp.get("is_error") or resp.get("interrupted")))
     rec = {

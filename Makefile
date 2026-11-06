@@ -1,4 +1,4 @@
-.PHONY: build lint test demo
+.PHONY: build lint test demo isolation
 
 CORE_SRC := packages/guardrails-core/src/guardrails_core
 VENDOR := packages/guardrails-plugin/vendor/guardrails_core
@@ -9,6 +9,12 @@ build:
 	mkdir -p $(VENDOR)
 	cp $(CORE_SRC)/*.py $(VENDOR)/
 	find packages -name __pycache__ -prune -exec rm -rf {} +
+
+# The sandbox settings block for opt-in isolation, generated from policy.json. Run it after the
+# secret rules change and commit the file; a test fails while the committed file is stale.
+isolation:
+	mkdir -p packages/guardrails-plugin/isolation
+	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=packages/guardrails-core/src python3 -m guardrails_core.isolation packages/guardrails-plugin/policy.json > packages/guardrails-plugin/isolation/settings.local.json
 
 lint:
 	uv run ruff check .

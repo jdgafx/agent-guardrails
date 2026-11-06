@@ -1,0 +1,62 @@
+{
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "autoAllowBashIfSandboxed": false,
+    "filesystem": {
+      "denyRead": [
+        "./**/.env*",
+        "~/.env*",
+        "~/.config/.env*",
+        "./**/*.env",
+        "~/*.env",
+        "~/.config/*.env",
+        "./**/.aws",
+        "~/.aws",
+        "~/.config/.aws",
+        "./**/.ssh",
+        "~/.ssh",
+        "~/.config/.ssh",
+        "./**/.kube/config",
+        "~/.kube/config",
+        "~/.config/.kube/config",
+        "./**/.docker/config.json",
+        "~/.docker/config.json",
+        "~/.config/.docker/config.json",
+        "./**/.netrc",
+        "~/.netrc",
+        "~/.config/.netrc",
+        "./**/.git-credentials",
+        "~/.git-credentials",
+        "~/.config/.git-credentials",
+        "./**/.npmrc",
+        "~/.npmrc",
+        "~/.config/.npmrc",
+        "./**/.pypirc",
+        "~/.pypirc",
+        "~/.config/.pypirc",
+        "./**/gh/hosts.yml",
+        "~/gh/hosts.yml",
+        "~/.config/gh/hosts.yml",
+        "./**/.config/gcloud",
+        "~/.config/gcloud",
+        "~/.config/.config/gcloud",
+        "./**/application_default_credentials.json",
+        "~/application_default_credentials.json",
+        "~/.config/application_default_credentials.json"
+      ],
+      "allowRead": [
+        "./**/*.example",
+        "~/*.example",
+        "~/.config/*.example",
+        "./**/*.sample",
+        "~/*.sample",
+        "~/.config/*.sample",
+        "./**/*.template",
+        "~/*.template",
+        "~/.config/*.template"
+      ]
+    }
+  }
+}

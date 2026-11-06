@@ -36,8 +36,8 @@ NEEDLES = [
     # T-013 changed "allowed with no prompt" to "no ask or deny from this plugin": Claude Code's own prompts may still apply, so "no prompt" overclaimed.
     # T-006 built the fix: option words before the subcommand are seen, so the old "allowed with no ask or deny" sentence is replaced by what is true now.
     (3, "T", "`git -C repo push --force`, `git -c key=value push -f`, `git --no-pager push -f` and `git --git-dir=x push -f` are denied."),
-    # T-013 (EGM stage 7): "The real control" was a judgement; now "Isolation is the control ... this plugin does not provide it".
-    (4, "T", "Isolation is the control against a determined injection, and this plugin does not provide it: use a container or a separate user with no access to your secrets."),
+    # T-013 (EGM stage 7): "The real control" was a judgement; T-014 built an opt-in isolation layer, so the sentence now says what it covers.
+    (4, "T", "Isolation is the control against a determined injection. This plugin's opt-in isolation blocks shell reads of the listed secret files only; for everything else use a container or a separate user with no access to your secrets."),
     (5, "T", "### 8. Nothing controls what leaves the machine"),
     # T-008 built the secret rules: the doc names the listed credential files and what is left.
     (6, "T", "- Your secrets, as far as a tool call names a listed credential file or folder (`.env` files, keys, cloud, SSH, git and package-registry credentials) in any field of its input or as a word of a Bash command."),
@@ -83,7 +83,7 @@ NEEDLES = [
     (35, "A", "`validate()` checks that a pattern compiles, not that it is fast."),
     (36, "A", "Put all the code inside the plugin folder (no separate core package, no copy)"),
     (37, "A", "on every word of the command, not only words that look like paths"),
-    (39, "A", "- `policy.json` has `version` (must be `1`), `rules`, `step_cap`, `untrusted_tools`, `trusted_tools`, `injection_markers` and `audit`"),
+    (39, "A", "- `policy.json` has `version` (must be `1`), `isolation` (true or false, default false; the opt-in isolation layer), `rules`, `step_cap`, `untrusted_tools`, `trusted_tools`, `injection_markers` and `audit`"),
     (40, "T", "- The write tools are denied on the log files, but a Bash command can still edit or delete them (limit 7)."),
     (41, "A", "If that path does not exist or is a folder, it is an error: the file is left out and the ask names it."),
     (42, "A", "An added policy file can only add to the shipped one."),

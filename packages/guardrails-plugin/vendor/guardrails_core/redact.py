@@ -35,3 +35,13 @@ def redact(obj):
     if isinstance(obj, (list, tuple)):
         return [redact(v) for v in obj]
     return obj
+
+
+def redact_fields(obj, keys):
+    """Redact the string values of the named keys of a dict. Returns a copy; adds no key.
+
+    Anything that is not a dict, and any value that is not a string, is left as it is.
+    """
+    if not isinstance(obj, dict):
+        return obj
+    return {k: redact_text(v) if k in keys and isinstance(v, str) else v for k, v in obj.items()}
