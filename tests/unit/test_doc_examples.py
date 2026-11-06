@@ -72,6 +72,11 @@ EXPECT = {
     # T-008: the stated limits of the secret rules (a name that is not spelled, a parent folder)
     "cat .n*rc": OK, "cd ~/.config/gh && cat hosts.yml": OK,
     "grep -r AWS_SECRET ~": OK,
+    # T-014: the isolation table. The plugin column; the "isolation on" column is backed by
+    # tests/live/t014_probe.py, not by this test.
+    "cat ~/.aws/credentials": D, 'cat .e""nv': OK, "cat ./notes": OK,
+    "cd ~/.kube && cat config": OK, "grep -r KEY ~": OK, "cat /srv/app/.env": D,
+    "cat ~/other/.env": D, G + ' show HEAD:.e""nv': OK, G + " show": OK, G + " log -p": OK,
     # the stated Bash limit (THREAT_MODEL limit 7): a variable or a relative path is not seen
     'rm "$CLAUDE_PLUGIN_DATA"/state/s.calls': OK,
     "cd ~/.claude/plugins/data && rm agent-guardrails/policy.json": OK,
@@ -84,7 +89,8 @@ EXPECT = {
 
 # Command-like spans that are not a case: build and tooling commands, flags, placeholders.
 NOT_A_CASE = {
-    "claude --version", "claude -p", "make build", "make lint", "make test", "uv run pytest",
+    "claude --version", "claude -p", "make isolation", "python3 tests/live/t014_probe.py",
+    "make build", "make lint", "make test", "uv run pytest",
     G + " diff --exit-code", G + " clean", "python -c", "python3 -c", "python3 -I -S", "sed -i",
     "mcp__<server>__<tool>",
 }
