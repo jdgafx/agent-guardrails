@@ -63,7 +63,10 @@ def sandbox_block(policy):
 def _read(path):
     try:
         with open(path, encoding="utf-8") as f:
-            obj = json.load(f)
+            text = f.read()
+        # An empty file adds no key. The sandbox makes a zero-byte placeholder for
+        # .claude/settings.json while a command runs, so a parallel call's Pre can see one.
+        obj = json.loads(text) if text.strip() else {}
     except FileNotFoundError:
         return {}
     except (OSError, ValueError) as e:

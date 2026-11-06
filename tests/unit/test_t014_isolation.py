@@ -234,7 +234,21 @@ def test_case_40_a_changed_block_denies(proj, data, iso_on, mutate):
         "deny", "isolation-not-active")
 
 
-@pytest.mark.parametrize("text", ["{not json", "[]", '{"sandbox": []}', ""])
+@pytest.mark.parametrize("name", ["settings.json", "settings.local.json"])
+def test_case_40_an_empty_file_counts_as_no_file(proj, data, iso_on, name):
+    """The sandbox leaves a zero-byte placeholder for .claude/settings.json while a command runs
+    (seen live, 2026-11-06: a parallel call's Pre read it). It adds no key, so it must not deny
+    a block that is in force, and it must not hide a missing one."""
+    other = "settings.json" if name == "settings.local.json" else "settings.local.json"
+    put_settings(proj, other, isolation.sandbox_block(SHIPPED))
+    put_settings(proj, name, text="")
+    assert pre("Bash", {"command": "git status"}, proj, data)[0] == "allow"
+    (proj / ".claude" / other).unlink()
+    assert pre("Bash", {"command": "git status"}, proj, data)[:2] == (
+        "deny", "isolation-not-active")
+
+
+@pytest.mark.parametrize("text", ["{not json", "[]", '{"sandbox": []}'])
 def test_case_40_a_settings_file_that_is_not_valid_denies(proj, data, iso_on, text):
     put_settings(proj, text=text)
     assert pre("Bash", {"command": "git status"}, proj, data)[:2] == (
