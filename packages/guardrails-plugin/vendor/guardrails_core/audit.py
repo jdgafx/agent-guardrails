@@ -39,7 +39,8 @@ def write_audit(data, record, policy):
     folder = os.path.join(data, "audit")
     _private_dir(folder)
     day = time.strftime("%Y-%m-%d", time.gmtime())
-    _append(os.path.join(folder, day + ".jsonl"), json.dumps(rec, ensure_ascii=False) + "\n")
+    # ensure_ascii (the default): the line is ASCII, so a lone surrogate cannot break the write
+    _append(os.path.join(folder, day + ".jsonl"), json.dumps(rec) + "\n")
     return rec
 
 

@@ -13,7 +13,8 @@ jobs:
       - name: Vendored core is up to date
         run: |
           make build
-          git diff --exit-code -- packages/guardrails-plugin/vendor
+          git status --porcelain -- packages/guardrails-plugin/vendor
+          test -z "$(git status --porcelain -- packages/guardrails-plugin/vendor)"
       - name: Lint
         run: make lint
       - name: Tests

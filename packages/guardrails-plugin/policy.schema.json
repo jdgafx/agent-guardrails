@@ -29,6 +29,7 @@
       "properties": { "max_calls": { "type": "integer", "minimum": 1 } }
     },
     "untrusted_tools": { "type": "array", "items": { "type": "string" } },
+    "trusted_tools": { "type": "array", "items": { "type": "string" } },
     "injection_markers": {
       "type": "array",
       "items": {

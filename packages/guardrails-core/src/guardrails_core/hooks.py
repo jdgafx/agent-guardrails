@@ -34,9 +34,13 @@ def pre_json(decision, reason):
         "permissionDecisionReason": reason}})
 
 
+def _error_reason(exc):
+    return ("Guardrails could not check this call (%s: %s). Asking instead of guessing."
+            % (type(exc).__name__, exc))
+
+
 def error_ask(exc):
-    return pre_json("ask", "[guardrails-error] Guardrails could not check this call (%s: %s). "
-                    "Asking instead of guessing." % (type(exc).__name__, exc))
+    return pre_json("ask", "[guardrails-error] " + _error_reason(exc))
 
 
 def _record(data, p, d, pol):
@@ -60,6 +64,13 @@ def _record(data, p, d, pol):
     return err
 
 
+def _logged_error_ask(data, p, exc, step=None):
+    """The error ask, logged like any decision so Post can copy it (a failed write is ignored)."""
+    d = rules.Decision("ask", "guardrails-error", _error_reason(exc), step)
+    _record(data, p or {"tool_name": "unknown"}, d, {})
+    return error_ask(exc)
+
+
 def _count(data, p):
     """The step number of this call, or None when it cannot be counted."""
     try:
@@ -75,6 +86,7 @@ def run_pre(raw, root, data):
     The rules run before anything that can fail (policy trouble, an unwritable data folder), so
     a deny stays a deny. Only an allow that cannot be counted or logged becomes an ask.
     """
+    p = None
     try:
         p = _parse(raw)
         tool, tin = p["tool_name"], p.get("tool_input", {})
@@ -92,7 +104,7 @@ def run_pre(raw, root, data):
                 d = guard._replace(step=_count(data, p))
                 _record(data, p, d, {})
                 return pre_json(d.decision, "[%s] %s" % (d.rule, d.reason))
-            return error_ask(e)
+            return _logged_error_ask(data, p, e, _count(data, p))
         d = rules.stronger(guard, rules.match(pol, tool, tin))
         if d is None and errors:
             d = rules.Decision("ask", "guardrails-policy-error",
@@ -102,16 +114,16 @@ def run_pre(raw, root, data):
         step = _count(data, p)
         if d is None:
             if step is None:
-                return error_ask(RuntimeError("the call could not be counted"))
+                return _logged_error_ask(data, p, RuntimeError("the call could not be counted"))
             d = rules.cap(pol, step) or rules.Decision("allow", "default-allow",
                                                        "No rule matched.", step)
         d = d._replace(step=step)
         err = _record(data, p, d, pol)
         if err and d.decision == "allow":  # a deny stays a deny; an unlogged allow becomes an ask
-            return error_ask(err)
+            return _logged_error_ask(data, p, err, step)
         return "" if d.decision == "allow" else pre_json(d.decision, "[%s] %s" % (d.rule, d.reason))
     except Exception as e:
-        return error_ask(e)
+        return _logged_error_ask(data, p, e)
 
 
 def run_post(raw, root, data):
@@ -121,13 +133,17 @@ def run_post(raw, root, data):
     pol, _ = load_policy(root, data)
     sid, tid, tool = p.get("session_id", "unknown"), p.get("tool_use_id"), p["tool_name"]
     prior = audit.recall_decision(data, sid, tid)
-    resp = p.get("tool_response")
-    warnings = injection.scan(pol, resp) if injection.is_untrusted_tool(pol, tool) else []
-    bad = isinstance(resp, dict) and (resp.get("is_error") or resp.get("interrupted"))
-    audit.write_audit(data, {
+    failed = p.get("hook_event_name") == "PostToolUseFailure"
+    resp = p["tool_response"] if "tool_response" in p else p.get("error", "")
+    warnings, cut = injection.scan(pol, resp) if injection.is_scanned(pol, tool) else ([], False)
+    bad = failed or (isinstance(resp, dict) and (resp.get("is_error") or resp.get("interrupted")))
+    rec = {
         "session_id": sid, "tool_name": tool, "tool_use_id": tid,
         "event": "result", "decision": prior.get("decision", "unknown"),
         "rule": prior.get("rule"), "step": prior.get("step"),
         "input": p.get("tool_input", {}),
-        "result_bytes": len(injection.result_text(resp).encode("utf-8")),
-        "status": "error" if bad else "ok", "warnings": warnings}, pol)
+        "result_bytes": injection.result_bytes(resp),
+        "status": "error" if bad else "ok", "warnings": warnings}
+    if cut:
+        rec["scan_truncated"] = True
+    audit.write_audit(data, rec, pol)
