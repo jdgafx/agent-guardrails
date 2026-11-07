@@ -26,7 +26,8 @@ demo: build
 	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=packages/guardrails-core/src:packages/guardrails-demo/src \
 		python3 -m guardrails_demo
 
-# The local read-only dashboard server. It imports core from its source folder, so it needs no build.
+# The local read-only dashboard server (options: make dashboard ARGS="--port 8766"). It imports core
+# from its source folder, so it needs no build.
 dashboard:
 	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=packages/guardrails-core/src:packages/guardrails-dashboard/src \
-		python3 -m guardrails_dashboard
+		python3 -m guardrails_dashboard $(ARGS)
