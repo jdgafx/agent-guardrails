@@ -8,7 +8,7 @@ Short forms used below: **Pre** and **Post** are the two scripts, `hooks/pre_too
 
 - **Problem.** An agent that runs commands and edits files can do something destructive or expose a secret by mistake, and Claude Code is not known to keep a per-call record of what a guard allowed, asked or denied (not checked).
 - **Goals.** Deny the commands and file names that `policy.json` lists, in the listed spellings. Ask a person before the commands `policy.json` lists as ask. Keep a redacted log.
-- **Non-goals.** A spend cap, injection blocking, an exporter, a UI (see "Cuts"), and protection against a determined attacker (see [THREAT_MODEL.md](THREAT_MODEL.md)).
+- **Non-goals.** A spend cap, injection blocking, an exporter, a server or a live UI (see "Cuts"), and protection against a determined attacker (see [THREAT_MODEL.md](THREAT_MODEL.md)).
 
 ## The pieces
 
@@ -25,6 +25,7 @@ pyproject.toml, uv.lock          the uv workspace, the ruff settings, Python 3.9
 .claude-plugin/marketplace.json  lets /plugin marketplace add use this repo as a source.
 Makefile                         build, lint, test, demo, isolation (writes the sandbox block).
 tests/live/                      t014_probe.py: real claude -p sessions for the isolation layer (not in make test).
+index.html                       the static dashboard page (sample data unless a server answers /api; see "Cuts").
 README.md, GLOSSARY.md, docs/    the documents. LICENSE: MIT.
 ```
 
@@ -269,7 +270,7 @@ Each row points to where the reasons are written.
 - **No spend cap.** A hook input has no cost field. A cap estimated from the session transcript (its path is in the hook input) was not attempted.
 - **No injection blocking or rewriting.** A phrase match has false positives, and rewriting tool output means the model sees text that differs from the tool's real output, which the log would not show. Scan and log only: the scan is a record of what came in, not a shield.
 - **No OpenTelemetry exporter.** The log uses OpenTelemetry's field names (`gen_ai.tool.name` and two more) so an exporter could read it later. Nothing is sent anywhere.
-- **No UI, no dashboard, no server.** A JSONL file you can `grep` and `jq`.
+- **One static dashboard, no server.** The repo ships `index.html`, a single self-contained static dashboard page with no runtime dependencies. It asks for `/api/status`, `/api/policy` and `/api/events` and shows the policy and the audit log from them; if those do not answer (for example when you open the file by double-click), it shows sample data. No code in this repo provides `/api`, and the plugin has no server and opens no port, so with the plugin alone the page shows sample data. The log itself stays a JSONL file you can `grep` and `jq`.
 
 ### Known gaps
 
