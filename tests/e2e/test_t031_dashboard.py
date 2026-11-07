@@ -25,7 +25,8 @@ from guardrails_dashboard import server
 ROOT = Path(__file__).resolve().parents[2]
 PLUGIN = ROOT / "packages" / "guardrails-plugin"
 PAGE = ROOT / "index.html"
-SRC = ":".join(str(ROOT / "packages" / p / "src") for p in ("guardrails-core", "guardrails-dashboard"))
+SRC = ":".join(str(ROOT / "packages" / p / "src") 
+                for p in ("guardrails-core", "guardrails-dashboard"))
 DAY = "2026-11-07"
 NO_HOST = object()
 
@@ -34,7 +35,8 @@ NO_HOST = object()
 
 def hook(event, payload, data, extra_env=None):
     cfg = json.loads((PLUGIN / "hooks" / "hooks.json").read_text())
-    cmd = cfg["hooks"][event][0]["hooks"][0]["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
+    cmd = cfg["hooks"][event][0]["hooks"][0]["command"]
+    cmd = cmd.replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
     env = {"PATH": "/usr/bin:/bin", "HOME": str(data), "CLAUDE_PLUGIN_ROOT": str(PLUGIN),
            "CLAUDE_PLUGIN_DATA": str(data), **(extra_env or {})}
     return subprocess.Popen(["/bin/bash", "-c", cmd], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -287,7 +289,8 @@ def big_log(path, size, rec):
     n = 0
     with open(path, "wb") as f:
         while f.tell() < size:
-            f.write("".join(template.replace("@@@", "big%08d" % (n + i)) for i in range(20000)).encode())
+            block = (template.replace("@@@", "big%08d" % (n + i)) for i in range(20000))
+            f.write("".join(block).encode())
             n += 20000
     return n
 
@@ -314,7 +317,8 @@ def test_case_09_two_thousand_new_lines_give_the_newest_500(dash, real):
     append(dash.data, "".join(line(rec, tool_use_id="m%04d" % i) for i in range(2000)))
     got = dash.events(cursor)
     assert [e["tool_use_id"] for e in got] == ["m%04d" % i for i in range(1500, 2000)]
-    assert got[-1]["cursor"] == "%s:%d" % (DAY, (dash.data / "audit" / (DAY + ".jsonl")).stat().st_size)
+    size = (dash.data / "audit" / (DAY + ".jsonl")).stat().st_size
+    assert got[-1]["cursor"] == "%s:%d" % (DAY, size)
     assert dash.events(got[-1]["cursor"]) == []
 
 
@@ -406,8 +410,8 @@ def test_case_25_no_cors_header_for_a_foreign_origin(dash):
 
 
 def snapshot(folder):
-    return {str(p): (p.stat().st_size, p.stat().st_mtime_ns) for p in sorted(Path(folder).rglob("*"))
-            if p.is_file()}
+    files = [p for p in sorted(Path(folder).rglob("*")) if p.is_file()]
+    return {str(p): (p.stat().st_size, p.stat().st_mtime_ns) for p in files}
 
 
 def test_case_26_the_server_writes_nothing(dash):
@@ -551,7 +555,8 @@ def test_case_39_a_busy_port_exits_2_and_names_the_flag(tmp_path):
     try:
         out = subprocess.run([sys.executable, "-m", "guardrails_dashboard", "--port",
                               str(busy.getsockname()[1]), "--data", str(tmp_path / "d")],
-                             capture_output=True, text=True, env=proc_env(), cwd=str(ROOT), timeout=20)
+                             capture_output=True, text=True, env=proc_env(), cwd=str(ROOT),
+                             timeout=20)
     finally:
         busy.close()
     assert out.returncode == 2 and "--port" in out.stdout

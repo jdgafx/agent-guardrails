@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>agent-guardrails · Firewall Status &amp; Security Events</title>
+  <title>agent-guardrails · Tool-call guard and audit log</title>
   <script>
     /* Sets the theme before the first paint: saved choice, else the OS setting. Storage may be blocked. */
     (function () {
@@ -371,7 +371,7 @@
       background: var(--allow-bg);
       color: var(--allow-fg);
     }
-    .data-source-pill.sample {
+    .data-source-pill.sample, .data-source-pill.offline {
       border-color: var(--ask-border);
       color: var(--ask-fg);
       background: var(--ask-bg);
@@ -626,6 +626,27 @@
       color: var(--allow-fg);
       background: var(--allow-bg);
       border-color: var(--allow-border);
+    }
+    .decision-badge.flagged {
+      color: var(--inj-fg);
+      background: var(--inj-bg);
+      border-color: var(--inj-border);
+    }
+    .row-note {
+      display: block;
+      margin-top: 3px;
+      font-size: var(--fs-meta);
+      line-height: 1.25;
+      color: var(--text-secondary);
+    }
+    .rule-text {
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      color: var(--text-secondary);
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     /* Main 2-Column Workspace */
@@ -979,6 +1000,7 @@
     .dist-seg-deny { background: var(--deny-solid); height: 100%; }
     .dist-seg-ask { background: var(--ask-solid); height: 100%; }
     .dist-seg-allow { background: var(--allow-solid); height: 100%; }
+    .dist-seg-flagged { background: var(--inj-solid); height: 100%; }
 
     /* Filter Bar */
     .filter-bar {
@@ -1092,6 +1114,9 @@
     }
     .event-entry.ev-allow {
       border-left-color: var(--allow-solid);
+    }
+    .event-entry.ev-flagged {
+      border-left-color: var(--inj-solid);
     }
     .event-entry:hover {
       background: var(--bg-hover);
@@ -1441,7 +1466,7 @@
         </svg>
       </span>
       <h1 class="brand-title">agent-guardrails</h1>
-      <span class="brand-subtitle">Claude Code Tool-Call Firewall</span>
+      <span class="brand-subtitle">Claude Code tool-call guard</span>
     </div>
     <div class="header-meta">
       <span id="data-source-badge" class="data-source-pill sample">sample data</span>
@@ -1465,7 +1490,7 @@
 
   <!-- Posture Strip (5 Tiles) -->
   <section class="posture-strip" aria-labelledby="posture-heading">
-    <h2 id="posture-heading" class="sr-only">Firewall posture</h2>
+    <h2 id="posture-heading" class="sr-only">Guard posture</h2>
     <div id="tile-plugin" class="posture-tile tone-ok">
       <div class="tile-label">
         <span>Plugin</span>
@@ -1563,7 +1588,7 @@
       <!-- WAF Telemetry Distribution Strip -->
       <div class="telemetry-strip">
         <div id="telemetry-pills" class="telemetry-pills" role="group" aria-label="Quick filters"></div>
-        <p class="telemetry-legend">Deny blocks · Ask needs a human yes · Allow passed</p>
+        <p class="telemetry-legend">Deny: stopped before it ran · Ask: needed a yes before it ran · Allow: ran · Flagged: ran, and its reply matched an injection phrase (logged, not blocked)</p>
         <div id="distribution-bar" class="distribution-bar" aria-hidden="true"></div>
       </div>
 
@@ -1576,6 +1601,7 @@
             <option value="deny">Deny</option>
             <option value="ask">Ask</option>
             <option value="allow">Allow</option>
+            <option value="flagged">Flagged</option>
           </select>
         </div>
 
@@ -2080,7 +2106,9 @@
         rulesSig: null,
         rulesCollapsed: true,
         pollTimer: null,
-        clockTimer: null
+        clockTimer: null,
+        offline: false,
+        retryTimer: null
       };
 
       function cloneObj(o) {
@@ -2123,6 +2151,8 @@
         var d;
         if (decision === "deny") {
           d = "M8 1.8a6.2 6.2 0 1 0 0 12.4A6.2 6.2 0 0 0 8 1.8zm-4.3 4.3l8.6 8.6";
+        } else if (decision === "flagged") {
+          d = "M8 2.2L1.6 13.3h12.8L8 2.2zM8 6.6v3.2M8 11.3v.9";
         } else if (decision === "ask") {
           d = "M5.5 8V3.5a1 1 0 0 1 2 0V7m0-4a1 1 0 0 1 2 0v4m0-3a1 1 0 0 1 2 0v5.5a4.5 4.5 0 0 1-9 0V7.5a1 1 0 0 1 2 0V9";
         } else {
@@ -2131,13 +2161,17 @@
         return createSvg(d, "1.8");
       }
 
+      function chipKind(decision) {
+        return (decision === "deny" || decision === "ask" || decision === "allow" || decision === "flagged") ? decision : "ask";
+      }
+
       function decisionWord(decision) {
-        var norm = (decision === "deny" || decision === "ask" || decision === "allow") ? decision : "ask";
+        var norm = chipKind(decision);
         return norm.charAt(0).toUpperCase() + norm.slice(1);
       }
 
       function createDecisionBadge(decision) {
-        var norm = (decision === "deny" || decision === "ask" || decision === "allow") ? decision : "ask";
+        var norm = chipKind(decision);
         var badge = el("span", "decision-badge " + norm);
         badge.appendChild(createDecisionIcon(norm));
         badge.appendChild(el("span", null, decisionWord(norm)));
@@ -2223,11 +2257,30 @@
         return firstKey + ": " + String(inp[firstKey]);
       }
 
+      /* The rule a row counts under: its own Pre rule. Only an allow falls back to default-allow;
+         a result line with no Pre record has no rule. */
       function normalizeRuleId(ev) {
         if (ev && ev.rule !== null && ev.rule !== undefined && ev.rule !== "") {
           return String(ev.rule);
         }
-        return "default-allow";
+        return ev && ev.decision === "allow" ? "default-allow" : "";
+      }
+
+      /* What a row is: the Pre decision before the call, or what the scan found in the reply after it.
+         The chip, tint, row name, header pills, bar, Decision filter and Last event tile all read this. */
+      function rowKind(ev) {
+        if (ev && ev.event === "result") {
+          if (extractWarnings(ev).length > 0) return "flagged";
+          return ev.decision === "allow" ? "allow" : "ask";
+        }
+        return ev && (ev.decision === "deny" || ev.decision === "ask" || ev.decision === "allow") ? ev.decision : "ask";
+      }
+
+      function rowNote(ev) {
+        var kind = rowKind(ev);
+        if (kind === "flagged") return ev.model_warned === true ? "warned Claude" : "logged only";
+        if (kind === "ask" && ev && ev.event === "result") return ev.decision === "unknown" ? "no Pre record" : "ran after the ask";
+        return null;
       }
 
       function extractWarnings(ev) {
@@ -2259,6 +2312,9 @@
         if (state.usingSample) {
           badge.textContent = "sample data";
           badge.className = "data-source-pill sample";
+        } else if (state.offline) {
+          badge.textContent = "offline";
+          badge.className = "data-source-pill offline";
         } else {
           badge.textContent = "live /api";
           badge.className = "data-source-pill";
@@ -2268,10 +2324,16 @@
         var bannerTitle = document.getElementById("state-banner-title");
         var bannerDesc = document.getElementById("state-banner-desc");
 
+        // Only a live server sends plugin_detail, so sample mode and the ?states=1 previews keep their words.
+        var detail = state.status.plugin_detail;
         var activeBanner = state.banner;
         if (!activeBanner) {
           if (!state.status.plugin_loaded) {
-            activeBanner = {
+            activeBanner = detail ? {
+              level: "critical",
+              title: "No hook writes found",
+              desc: detail
+            } : {
               level: "critical",
               title: "UNPROTECTED: Plugin not loaded",
               desc: "Claude Code tool calls are not being checked by agent-guardrails."
@@ -2279,7 +2341,7 @@
           } else if (!state.status.policy_ok) {
             activeBanner = {
               level: "warning",
-              title: "FAIL-CLOSED: Policy failed to load — every tool call now asks",
+              title: "Policy problem: every call that is not denied now asks",
               desc: state.status.policy_error || "Fix policy.json to restore rule evaluation."
             };
           }
@@ -2304,13 +2366,13 @@
         if (state.status.plugin_loaded) {
           tilePlugin.className = "posture-tile tone-ok";
           dotPlugin.className = "status-dot ok";
-          valPlugin.textContent = "Loaded";
-          subPlugin.textContent = "Enforcing PreToolUse & PostToolUse";
+          valPlugin.textContent = detail ? "Hooks seen" : "Loaded";
+          subPlugin.textContent = detail || "Enforcing PreToolUse & PostToolUse";
         } else {
           tilePlugin.className = "posture-tile tone-err";
           dotPlugin.className = "status-dot err";
-          valPlugin.textContent = "Not Installed";
-          subPlugin.textContent = "No hooks registered in Claude Code";
+          valPlugin.textContent = detail ? "No hook writes" : "Not Installed";
+          subPlugin.textContent = detail || "No hooks registered in Claude Code";
         }
 
         // Tile: Policy
@@ -2348,8 +2410,8 @@
         } else if (isoOn) {
           tileIso.className = "posture-tile tone-cyan";
           dotIso.className = "status-dot cyan";
-          valIso.textContent = "On (Sandboxed)";
-          subIso.textContent = "OS sandbox blocks secret file reads";
+          valIso.textContent = "On in policy";
+          subIso.textContent = "Shell calls need the sandbox block in the project settings";
         } else {
           tileIso.className = "posture-tile tone-neutral";
           dotIso.className = "status-dot neutral";
@@ -2412,7 +2474,7 @@
         }
 
         // Tile: Last event. Health colors are for system health; a decision never paints the tile.
-        // A deny is the firewall doing its job. Only an injection warning raises the tile to a warning.
+        // A deny is the guard doing its job. Only an injection warning raises the tile to a warning.
         var tileLast = document.getElementById("tile-last");
         var dotLast = document.getElementById("dot-last");
         var valLast = document.getElementById("val-last");
@@ -2427,7 +2489,7 @@
           var rel = formatRelativeTime(newestEvent.ts);
           var lastWarnings = extractWarnings(newestEvent);
           valLast.appendChild(el("span", null, rel));
-          valLast.appendChild(createDecisionBadge(newestEvent.decision));
+          valLast.appendChild(createDecisionBadge(rowKind(newestEvent)));
           if (lastWarnings.length > 0) {
             var lastFlag = el("span", "injection-flag");
             lastFlag.appendChild(el("span", null, "⚠")).setAttribute("aria-hidden", "true");
@@ -2609,15 +2671,12 @@
           deny: buildPill("deny-pill", "pill:deny", "Deny blocks the call. Select to show only denied events.", function () { setDecisionFilter("deny"); }),
           ask: buildPill("ask-pill", "pill:ask", "Ask needs a human yes. Select to show only events that asked.", function () { setDecisionFilter("ask"); }),
           allow: buildPill("allow-pill", "pill:allow", "Allow passed the call. Select to show only allowed events.", function () { setDecisionFilter("allow"); }),
-          inj: buildPill("inj-pill", "pill:inj", "Events whose tool output matched a prompt-injection marker. Select to show only those.", function () {
-            state.filters.signal = state.filters.signal === "injection" ? "all" : "injection";
-            syncFilterControls();
-            renderAll();
-          }),
+          flagged: buildPill("inj-pill", "pill:flagged", "Flagged: the call ran and its reply matched a prompt-injection phrase. Logged, not blocked. Select to show only those.", function () { setDecisionFilter("flagged"); }),
           segs: {
             deny: el("div", "dist-seg-deny"),
             ask: el("div", "dist-seg-ask"),
-            allow: el("div", "dist-seg-allow")
+            allow: el("div", "dist-seg-allow"),
+            flagged: el("div", "dist-seg-flagged")
           }
         };
         pillNodes.deny.label.textContent = "Deny:";
@@ -2625,47 +2684,43 @@
         pillNodes.allow.label.textContent = "Allow:";
         var warnIcon = el("span", null, "⚠");
         warnIcon.setAttribute("aria-hidden", "true");
-        pillNodes.inj.btn.insertBefore(warnIcon, pillNodes.inj.label);
-        pillNodes.inj.label.textContent = "Injection:";
+        pillNodes.flagged.btn.insertBefore(warnIcon, pillNodes.flagged.label);
+        pillNodes.flagged.label.textContent = "Flagged:";
         pillsEl.appendChild(pillNodes.deny.btn);
         pillsEl.appendChild(pillNodes.ask.btn);
         pillsEl.appendChild(pillNodes.allow.btn);
-        pillsEl.appendChild(pillNodes.inj.btn);
+        pillsEl.appendChild(pillNodes.flagged.btn);
         barEl.appendChild(pillNodes.segs.deny);
         barEl.appendChild(pillNodes.segs.ask);
         barEl.appendChild(pillNodes.segs.allow);
+        barEl.appendChild(pillNodes.segs.flagged);
       }
 
       function renderTelemetryStrip() {
         ensureTelemetry();
-        var denyCnt = 0;
-        var askCnt = 0;
-        var allowCnt = 0;
-        var injCnt = 0;
+        var counts = { deny: 0, ask: 0, allow: 0, flagged: 0 };
+        for (var i = 0; i < state.events.length; i++) counts[rowKind(state.events[i])]++;
+        var denyCnt = counts.deny;
+        var askCnt = counts.ask;
+        var allowCnt = counts.allow;
+        var flagCnt = counts.flagged;
 
-        for (var i = 0; i < state.events.length; i++) {
-          var ev = state.events[i];
-          if (ev.decision === "deny") denyCnt++;
-          else if (ev.decision === "ask") askCnt++;
-          else if (ev.decision === "allow") allowCnt++;
-          if (extractWarnings(ev).length > 0) injCnt++;
-        }
-
-        var total = Math.max(1, denyCnt + askCnt + allowCnt);
+        var total = Math.max(1, denyCnt + askCnt + allowCnt + flagCnt);
         var hasEvents = state.events.length > 0;
 
         pillNodes.deny.count.textContent = String(denyCnt);
         pillNodes.ask.count.textContent = String(askCnt);
         pillNodes.allow.count.textContent = String(allowCnt);
-        pillNodes.inj.count.textContent = String(injCnt);
+        pillNodes.flagged.count.textContent = String(flagCnt);
         pillNodes.deny.btn.setAttribute("aria-pressed", state.filters.decision === "deny" ? "true" : "false");
         pillNodes.ask.btn.setAttribute("aria-pressed", state.filters.decision === "ask" ? "true" : "false");
         pillNodes.allow.btn.setAttribute("aria-pressed", state.filters.decision === "allow" ? "true" : "false");
-        pillNodes.inj.btn.setAttribute("aria-pressed", state.filters.signal === "injection" ? "true" : "false");
+        pillNodes.flagged.btn.setAttribute("aria-pressed", state.filters.decision === "flagged" ? "true" : "false");
 
         pillNodes.segs.deny.style.width = hasEvents ? ((denyCnt / total) * 100) + "%" : "0";
         pillNodes.segs.ask.style.width = hasEvents ? ((askCnt / total) * 100) + "%" : "0";
         pillNodes.segs.allow.style.width = hasEvents ? ((allowCnt / total) * 100) + "%" : "0";
+        pillNodes.segs.flagged.style.width = hasEvents ? ((flagCnt / total) * 100) + "%" : "0";
       }
 
       function populateDynamicFilters() {
@@ -2758,7 +2813,7 @@
       function rowLabel(ev) {
         var target = extractEventTarget(ev);
         if (target.length > 120) target = target.slice(0, 120) + "…";
-        return formatRelativeTime(ev.ts) + ", " + decisionWord(ev.decision) + ", " + (ev.tool_name || "unknown") + ", " + target;
+        return formatRelativeTime(ev.ts) + ", " + decisionWord(rowKind(ev)) + ", " + (ev.tool_name || "unknown") + ", " + target;
       }
 
       function applyOpenState(row) {
@@ -2770,7 +2825,8 @@
       function buildEventRow(ev) {
         var key = ev.__key;
         var drawerId = "drawer-" + safeKey(key);
-        var evTone = (ev.decision === "deny" || ev.decision === "ask" || ev.decision === "allow") ? " ev-" + ev.decision : " ev-ask";
+        var kind = rowKind(ev);
+        var evTone = " ev-" + kind;
         var li = el("li", "event-entry" + evTone);
         li.setAttribute("data-key", key);
 
@@ -2790,7 +2846,9 @@
 
         // Cell 2: Decision badge
         var decCell = el("div", "ev-dec");
-        decCell.appendChild(createDecisionBadge(ev.decision));
+        decCell.appendChild(createDecisionBadge(kind));
+        var note = rowNote(ev);
+        if (note) decCell.appendChild(el("span", "row-note", note));
         summaryRow.appendChild(decCell);
 
         // Cell 3: Tool pill
@@ -2828,15 +2886,26 @@
         // Cell 5: Rule link, a sibling of the toggle, never inside it
         var ruleCell = el("div", "event-rule-cell");
         var ruleIdStr = normalizeRuleId(ev);
-        var ruleBtn = el("button", "rule-link-btn", ruleIdStr);
-        ruleBtn.type = "button";
-        ruleBtn.setAttribute("data-focus-id", "rulelink:" + key);
-        ruleBtn.setAttribute("aria-label", "Filter by rule " + ruleIdStr);
-        ruleBtn.title = "Filter by rule '" + ruleIdStr + "' and highlight it in the policy list";
-        ruleBtn.addEventListener("click", function () {
-          filterByRule(ruleIdStr);
-        });
-        ruleCell.appendChild(ruleBtn);
+        if (kind === "flagged") {
+          // The scan's own rule: the marker that matched. The Pre rule is in the drawer.
+          var scanMarks = extractWarnings(ev);
+          var scanText = "scan: " + scanMarks[0].marker + (scanMarks.length > 1 ? " +" + (scanMarks.length - 1) : "");
+          var scanSpan = el("span", "rule-text", scanText);
+          scanSpan.title = scanText;
+          ruleCell.appendChild(scanSpan);
+        } else if (!ruleIdStr) {
+          ruleCell.appendChild(el("span", "rule-text", "—"));
+        } else {
+          var ruleBtn = el("button", "rule-link-btn", ruleIdStr);
+          ruleBtn.type = "button";
+          ruleBtn.setAttribute("data-focus-id", "rulelink:" + key);
+          ruleBtn.setAttribute("aria-label", "Filter by rule " + ruleIdStr);
+          ruleBtn.title = "Filter by rule '" + ruleIdStr + "' and highlight it in the policy list";
+          ruleBtn.addEventListener("click", function () {
+            filterByRule(ruleIdStr);
+          });
+          ruleCell.appendChild(ruleBtn);
+        }
         summaryRow.appendChild(ruleCell);
         li.appendChild(summaryRow);
 
@@ -2850,8 +2919,22 @@
         metaGrid.appendChild(makeKvBox("Timestamp (UTC)", ev.ts || "—"));
         metaGrid.appendChild(makeKvBox("Session ID", ev.session_id || "—"));
         metaGrid.appendChild(makeKvBox("Tool Call ID / Step", (ev.tool_use_id || "—") + " · step " + (ev.step !== undefined ? ev.step : "—")));
-        metaGrid.appendChild(makeKvBox("Event Type / Rule", (ev.event || "—") + " · " + ruleIdStr));
+        metaGrid.appendChild(makeKvBox("Event Type / Rule", (ev.event || "—") + " · " + (ruleIdStr || "—")));
         expanded.appendChild(metaGrid);
+
+        if (ev.event === "result") {
+          var moments = el("div", "detail-block");
+          moments.appendChild(el("div", "detail-block-label", "Two moments"));
+          moments.appendChild(el("div", null, ev.decision === "unknown"
+            ? "Before the call: no record"
+            : "Before the call: " + decisionWord(ev.decision) + " (" + (ruleIdStr || "no rule") + ")"));
+          if (warnings.length > 0) {
+            moments.appendChild(el("div", null, "After the call: the reply matched " + warnings.length +
+              " injection phrase" + (warnings.length === 1 ? "" : "s") + "; " +
+              (ev.model_warned === true ? "Claude was warned" : "logged only")));
+          }
+          expanded.appendChild(moments);
+        }
 
         if (ev.reason) {
           var reasonBlock = el("div", "detail-block");
@@ -2919,7 +3002,7 @@
         for (var i = cappedEvents.length - 1; i >= 0; i--) {
           var ev = cappedEvents[i];
           var rId = normalizeRuleId(ev);
-          if (state.filters.decision !== "all" && ev.decision !== state.filters.decision) continue;
+          if (state.filters.decision !== "all" && rowKind(ev) !== state.filters.decision) continue;
           if (state.filters.rule !== "all" && rId !== state.filters.rule) continue;
           if (state.filters.tool !== "all" && ev.tool_name !== state.filters.tool) continue;
           if (state.filters.session !== "all" && ev.session_id !== state.filters.session) continue;
@@ -2947,11 +3030,12 @@
         if (filtered.length === 0) {
           emptyCard = el("li", "empty-feed-state");
           if (!state.status.plugin_loaded) {
-            emptyCard.appendChild(el("h3", "empty-feed-title", "Plugin Not Installed"));
-            emptyCard.appendChild(el("p", "empty-feed-desc", "agent-guardrails is not loaded in Claude Code. Install the plugin hooks in ~/.claude/settings.json to inspect and log every tool call before execution."));
+            emptyCard.appendChild(el("h3", "empty-feed-title", state.status.plugin_detail ? "No hook writes found" : "Plugin Not Installed"));
+            emptyCard.appendChild(el("p", "empty-feed-desc", state.status.plugin_detail || "agent-guardrails is not loaded in Claude Code. Install the plugin hooks in ~/.claude/settings.json to inspect and log every tool call before execution."));
           } else if (!state.status.log_found && state.events.length === 0) {
+            var ruleTotal = (state.policy && Array.isArray(state.policy.rules)) ? state.policy.rules.length : 0;
             emptyCard.appendChild(el("h3", "empty-feed-title", "No Audit Log Yet"));
-            emptyCard.appendChild(el("p", "empty-feed-desc", "The firewall is loaded and enforcing 20 rules, but no tool calls have been logged yet in this workspace. Run a tool in Claude Code to see live decisions here."));
+            emptyCard.appendChild(el("p", "empty-feed-desc", "The guard has " + ruleTotal + " rules loaded, and no tool call has been logged yet. Run a tool in Claude Code to see it here."));
           } else {
             emptyCard.appendChild(el("h3", "empty-feed-title", "No Matching Events"));
             emptyCard.appendChild(el("p", "empty-feed-desc", "No audit log lines match your active filter criteria."));
@@ -3096,29 +3180,81 @@
         });
       }
 
+      /* The one-time key the server printed is in this page's own address. It is read once and sent
+         with every /api request; a page opened without it (or from a file) gets no data. */
+      var API_KEY = (function () {
+        try { return new URLSearchParams(window.location.search).get("key") || ""; } catch (e) { return ""; }
+      })();
+
+      function apiUrl(path, after) {
+        var q = [];
+        if (after !== undefined) q.push("after=" + encodeURIComponent(after));
+        if (API_KEY) q.push("key=" + encodeURIComponent(API_KEY));
+        return path + (q.length ? "?" + q.join("&") : "");
+      }
+
+      function loadAll(timeoutMs) {
+        return Promise.all([
+          fetchJsonWithTimeout(apiUrl("/api/status"), timeoutMs),
+          fetchJsonWithTimeout(apiUrl("/api/policy"), timeoutMs),
+          fetchJsonWithTimeout(apiUrl("/api/events", ""), timeoutMs)
+        ]);
+      }
+
+      /* A first load: fresh answers replace the state, with no old cursor. */
+      function applyFirstLoad(results) {
+        state.usingSample = false;
+        state.offline = false;
+        state.banner = null;
+        state.status = results[0];
+        state.statusSig = JSON.stringify(results[0]);
+        state.policy = results[1];
+        state.events = Array.isArray(results[2]) ? results[2].slice(-500) : [];
+        state.lastTimestamp = null;
+        if (state.events.length > 0) {
+          var last = state.events[state.events.length - 1];
+          state.lastTimestamp = last.cursor || last.ts || null;
+        }
+        renderAll();
+        startPollingEvents();
+      }
+
       function initLiveOrSample() {
-        Promise.all([
-          fetchJsonWithTimeout("/api/status", 1200),
-          fetchJsonWithTimeout("/api/policy", 1200),
-          fetchJsonWithTimeout("/api/events?after=", 1200)
-        ])
-          .then(function (results) {
-            state.usingSample = false;
-            state.banner = null;
-            state.status = results[0];
-            state.statusSig = JSON.stringify(results[0]);
-            state.policy = results[1];
-            state.events = Array.isArray(results[2]) ? results[2].slice(-500) : [];
-            if (state.events.length > 0) {
-              state.lastTimestamp = state.events[state.events.length - 1].ts || null;
-            }
-            renderAll();
-            startPollingEvents();
-          })
-          .catch(function () {
-            state.usingSample = true;
-            renderAll();
+        loadAll(1200).then(applyFirstLoad, function () {
+          state.usingSample = true;
+          renderAll();
+        });
+      }
+
+      /* The server stopped answering: say so, keep the last rows, and try a fresh first load every 2 s.
+         It never falls back to sample data. */
+      function goOffline() {
+        if (state.pollTimer) {
+          clearInterval(state.pollTimer);
+          state.pollTimer = null;
+        }
+        state.offline = true;
+        state.banner = {
+          level: "warning",
+          title: "Dashboard server not answering",
+          desc: "Showing the last data received; retrying every 2 s. If the server was restarted, open the new link it printed."
+        };
+        renderAll();
+        announce("Dashboard server not answering");
+        if (state.retryTimer) return;
+        var busy = false;
+        state.retryTimer = setInterval(function () {
+          if (busy) return;
+          busy = true;
+          loadAll(1500).then(function (results) {
+            clearInterval(state.retryTimer);
+            state.retryTimer = null;
+            applyFirstLoad(results);
+            announce("Dashboard server answering again");
+          }, function () {
+            busy = false;
           });
+        }, 2000);
       }
 
       /* A poll renders only when something changed: a new status or new events. */
@@ -3129,13 +3265,13 @@
           if (!state.usingSample) refreshTimes();
         }, 30000);
         state.pollTimer = setInterval(function () {
-          if (state.usingSample) return;
-          var afterParam = state.lastTimestamp ? encodeURIComponent(state.lastTimestamp) : "";
+          if (state.usingSample || state.offline) return;
           Promise.all([
-            fetchJsonWithTimeout("/api/status", 1500),
-            fetchJsonWithTimeout("/api/events?after=" + afterParam, 1500)
+            fetchJsonWithTimeout(apiUrl("/api/status"), 1500),
+            fetchJsonWithTimeout(apiUrl("/api/events", state.lastTimestamp || ""), 1500)
           ])
             .then(function (res) {
+              if (state.offline) return;
               var changed = false;
               var sig = JSON.stringify(res[0]);
               if (sig !== state.statusSig) {
@@ -3146,15 +3282,13 @@
               var newEvents = Array.isArray(res[1]) ? res[1] : [];
               if (newEvents.length > 0) {
                 state.events = state.events.concat(newEvents).slice(-500);
-                state.lastTimestamp = state.events[state.events.length - 1].ts || state.lastTimestamp;
+                var last = state.events[state.events.length - 1];
+                state.lastTimestamp = last.cursor || last.ts || state.lastTimestamp;
                 changed = true;
                 announce(newEvents.length + (newEvents.length === 1 ? " new event" : " new events"));
               }
               if (changed) renderAll();
-            })
-            .catch(function () {
-              // Keep last known live state on transient poll hiccup
-            });
+            }, goOffline);
         }, 2000);
       }
 

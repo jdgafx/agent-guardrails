@@ -229,7 +229,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         super().end_headers()
 
-    def log_message(self, *args):  # the page polls every 2 s: one printed line each would bury the link
+    def log_message(self, *args):  # the page polls every 2 s: printed lines would bury the link
         pass
 
     def do_GET(self):
@@ -287,7 +287,7 @@ def main(argv=None):
     try:
         httpd = make_server(plugin_root, page, folder, args.port)
     except (OSError, OverflowError) as e:
-        _say("cannot listen on 127.0.0.1:%s (%s). Pick another port with --port N." % (args.port, e))
+        _say("cannot listen on 127.0.0.1:%s (%s). Pick another with --port N." % (args.port, e))
         return 2
     port = httpd.server_address[1]
     env_policy = os.environ.get("GUARDRAILS_POLICY")

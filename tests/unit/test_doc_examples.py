@@ -96,8 +96,8 @@ EXPECT = {
 
 # Command-like spans that are not a case: build and tooling commands, flags, placeholders.
 NOT_A_CASE = {
-    "claude --version", "claude -p", "make isolation", "python3 tests/live/t014_probe.py",
-    "make build", "make lint", "make test", "uv run pytest",
+    "claude --version", "claude -p", "make isolation", "make dashboard",
+    "python3 tests/live/t014_probe.py", "make build", "make lint", "make test", "uv run pytest",
     G + " diff --exit-code", G + " clean", "python -c", "python3 -c", "python3 -I -S", "sed -i",
     "mcp__<server>__<tool>",
 }
