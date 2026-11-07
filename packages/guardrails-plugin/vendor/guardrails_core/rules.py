@@ -64,13 +64,18 @@ def candidate_paths(tool_name, tool_input):
     return out
 
 
-def _glob_hit(path, glob):
-    """Globs without a slash match the file name. Others match the whole path."""
-    path, glob = path.lower(), glob.lower()
+def _glob_hit(form, glob):
+    """Globs without a slash match the file name. Others match the path below the project root
+    (the whole path for a path outside it). A glob that starts with / names one exact place, so
+    it is matched against the whole path.
+    """
+    whole, below = form
+    glob = glob.lower()
     if "/" in glob:
-        full = "/" + path.lstrip("/")  # so "*/.ssh/*" also matches ".ssh/id_rsa"
+        path = whole if glob.startswith("/") else below
+        full = "/" + path.lower().lstrip("/")  # so "*/.ssh/*" also matches ".ssh/id_rsa"
         return fnmatch.fnmatchcase(full, glob)
-    return fnmatch.fnmatchcase(os.path.basename(path), glob)
+    return fnmatch.fnmatchcase(os.path.basename(whole).lower(), glob)
 
 
 def _forms(path):
@@ -82,13 +87,34 @@ def _forms(path):
     return forms | {os.path.normpath(f) for f in forms}
 
 
-def path_hit(path, rule):
+def _below(form, root):
+    """(whole path, part below the project root). The part below differs from the whole path only
+    when the path resolves, links followed, to the root or a place inside it. The test is on the
+    resolved path with a "/" boundary, never a text prefix: a link out of the project, a ".." that
+    leaves it, and a sibling folder named like it are all outside.
+    """
+    if root and form.startswith("/"):
+        try:
+            real = os.path.realpath(form)
+        except (ValueError, OSError):
+            return form, form
+        if real == root or real.startswith(root.rstrip("/") + "/"):
+            return form, real[len(root):]
+    return form, form
+
+
+def _path_forms(path, root=None):
+    return [_below(f, root) for f in _forms(path)]
+
+
+def path_hit(forms, rule):
     """A form is denied when it matches and no except glob of the same rule excuses that form."""
-    return any(_glob_hit(f, g) for f in _forms(path) for g in rule["match"]
+    return any(_glob_hit(f, g) for f in forms for g in rule["match"]
                if not any(_glob_hit(f, e) for e in rule.get("except", [])))
 
 
 def rule_hit(rule, tool_name, tool_input, paths=None):
+    """paths: the candidate paths as lists of (whole, below) forms; computed here when not given."""
     kind = rule["kind"]
     if kind == "tool":
         return any(re.search(m, tool_name, re.I) for m in rule["match"])
@@ -97,32 +123,25 @@ def rule_hit(rule, tool_name, tool_input, paths=None):
         return (tool_name == "Bash" and isinstance(cmd, str)
                 and any(re.search(m, cmd) for m in rule["match"]))
     if paths is None:
-        paths = candidate_paths(tool_name, tool_input)
+        paths = [_path_forms(p) for p in candidate_paths(tool_name, tool_input)]
     return any(path_hit(p, rule) for p in paths)
 
 
 def _link_targets(tool_name, tool_input, cwd):
-    """The resolved form of each path field of a non-Bash tool, where a link was followed.
+    """The resolved form of each path field of a non-Bash tool.
 
-    A path with no link in it is skipped, so a project under a folder named "production" does not
-    get its plain files denied. The check only adds denies (the link check of isolation).
+    Matched like any other form: a resolved path inside the project is matched below the project
+    root, so a project under a folder named "production" keeps its files; one that leaves the
+    project (a link out) is matched in full. The check only adds denies (the link check of
+    isolation).
     """
     if tool_name == "Bash":
         return []
-    base = _real("", cwd)
-    out = []
-    for p in _named_paths(tool_name, tool_input):
-        real = _real(p, cwd)
-        try:
-            plain = os.path.normpath(os.path.join(base, os.path.expanduser(p)))
-        except ValueError:
-            continue
-        if real is not None and real != plain:
-            out.append(real)
-    return out
+    reals = (_real(p, cwd) for p in _named_paths(tool_name, tool_input))
+    return [r for r in reals if r is not None]
 
 
-def match(policy, tool_name, tool_input, cwd=None):
+def match(policy, tool_name, tool_input, cwd=None, links=True):
     """Strongest rule wins (deny over ask). The first rule of that strength is reported.
 
     A deny of kind path or command on a shell tool (Bash, PowerShell, Monitor) is returned as ask.
@@ -130,8 +149,10 @@ def match(policy, tool_name, tool_input, cwd=None):
     Returns None when no rule matches. The shipped rules come first and the loop stops at the
     first deny, so a slow regex in an added policy file cannot delay a deny on a file tool or a
     tool rule. A shell text rule only asks and an ask does not stop the loop, so such a regex can
-    delay a shipped shell ask. With cwd, a path field of a non-Bash tool is also
-    matched in its resolved form (a link to a listed file).
+    delay a shipped shell ask. With cwd, a path inside the project root (CLAUDE_PROJECT_DIR, else
+    cwd) is matched below that root, so a project that sits in or behind a folder named "prod"
+    keeps its files, and with links also a path field of a non-Bash tool is matched in its
+    resolved form (a link to a listed file).
     """
     cmd = tool_input.get("command") if tool_name == "Bash" else None
     if isinstance(cmd, str) and len(cmd) > MAX_COMMAND_CHARS:
@@ -140,9 +161,11 @@ def match(policy, tool_name, tool_input, cwd=None):
                         "Command is over %d characters, too long to check. Confirm it."
                         % MAX_COMMAND_CHARS, None)
     best = None
-    paths = candidate_paths(tool_name, tool_input)  # once per call, not once per rule
-    if cwd:
-        paths += _link_targets(tool_name, tool_input, cwd)
+    root = _real(os.environ.get("CLAUDE_PROJECT_DIR", ""), cwd) if cwd else None
+    # once per call, not once per rule
+    paths = [_path_forms(p, root) for p in candidate_paths(tool_name, tool_input)]
+    if cwd and links:
+        paths += [_path_forms(p, root) for p in _link_targets(tool_name, tool_input, cwd)]
     for r in policy["rules"]:
         if not rule_hit(r, tool_name, tool_input, paths):
             continue
