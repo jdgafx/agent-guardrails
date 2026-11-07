@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "agent-guardrails-workspace",
     "guardrails-core",
+    "guardrails-dashboard",
     "guardrails-demo",
     "guardrails-plugin",
 ]
@@ -20,6 +21,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "guardrails-core" },
+    { name = "guardrails-dashboard" },
     { name = "guardrails-demo" },
 ]
 
@@ -34,6 +36,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "guardrails-core", editable = "packages/guardrails-core" },
+    { name = "guardrails-dashboard", editable = "packages/guardrails-dashboard" },
     { name = "guardrails-demo", editable = "packages/guardrails-demo" },
 ]
 
@@ -78,6 +81,17 @@ wheels = [
 name = "guardrails-core"
 version = "0.1.0"
 source = { editable = "packages/guardrails-core" }
+
+[[package]]
+name = "guardrails-dashboard"
+version = "0.1.0"
+source = { editable = "packages/guardrails-dashboard" }
+dependencies = [
+    { name = "guardrails-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "guardrails-core", editable = "packages/guardrails-core" }]
 
 [[package]]
 name = "guardrails-demo"

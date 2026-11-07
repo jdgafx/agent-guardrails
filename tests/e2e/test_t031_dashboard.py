@@ -573,7 +573,7 @@ def test_case_55_no_key_is_403(dash, real, path):
 @pytest.mark.parametrize("path", ROUTES)
 def test_case_56_a_wrong_key_is_403(dash, real, path):
     append(dash.data, line(real["deny"], tool_use_id="secret-id"))
-    for key in ("wrong", "", dash.key[:-1], dash.key + "x", dash.key[::-1], "é", "%00"):
+    for key in ("wrong", "", dash.key[:-1], dash.key + "x", dash.key[::-1], "%C3%A9", "%00", "%FF"):
         code, _, body = dash.request(path, key=key)
         assert code == 403, key
         assert b"secret-id" not in body and b"plugin_loaded" not in body
