@@ -1,0 +1,12 @@
+{
+  "name": "agent-guardrails-dashboard-check",
+  "private": true,
+  "description": "Dev-only gate for index.html (the dashboard). Not part of the Python packages.",
+  "scripts": {
+    "check:dashboard": "node tests/dashboard-check.mjs index.html"
+  },
+  "devDependencies": {
+    "axe-core": "^4.14.0",
+    "playwright": "^1.65.0"
+  }
+}
