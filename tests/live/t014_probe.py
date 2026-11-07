@@ -230,9 +230,13 @@ def main():
         # ---- run B: the block plus the probe-only override
         b1 = p.run(["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14",
                     "15", "16", "17", "18", "19", "20"])
-        b2 = p.run(["21", "22", "23", "24", "25", "28", "29", "33", "34", "36", "37", "38", "40",
+        b2 = p.run(["21", "22", "23", "24", "25", "28", "29", "36", "37", "38", "40",
                     "41", "44", "42", "R42"])
-        b = dict(b1, **b2)
+        # case 3: 33 makes the late file and 34 reads it, one command at a time (a parallel
+        # batch would read it while 33 is still running, which the sandbox cannot hide)
+        b3 = p.run(["33"])
+        b4 = p.run(["34"])
+        b = dict(b1, **b2, **b3, **b4)
         check(1, b, ["1", "2"], lambda x, y: blocked(x) and blocked(y))
         check(2, b, ["3", "4", "5"], lambda x, y, z: blocked(x) and blocked(y) and blocked(z))
         check(3, b, ["33", "34"], lambda w, x: "wrote" in w and blocked(x))
@@ -284,7 +288,8 @@ def main():
         no_bwrap(p, claude)
         # ---- T-018 steps 45 to 47, last, because step 47 would damage the block if it worked
         before = (p.proj / ".claude" / "settings.local.json").read_text()
-        g = p.run(["45", "46", "47"])
+        g = p.run(["45", "46"])
+        g.update(p.run(["47"]))  # its own session: it must not inherit step 46's cd into repo33
         check("T018-45", g, ["45"], lambda x: not (p.home / "t018-outside-marker").exists())
         check("T018-46", g, ["46"], lambda x: not (p.proj / "repo33" / ".git" / "hooks"
                                                    / "t018").exists())
@@ -333,9 +338,12 @@ def modes(claude):
             if marker.exists() != (ans == "allow"):
                 bad.append("%s/%s: marker %s" % (
                     ans, mode, "exists" if marker.exists() else "missing"))
-        log = (t / "hook.log").read_text() if (t / "hook.log").exists() else ""
-        if len(log.splitlines()) < len(runs) - 1:  # a model that does not call Bash is a miss
-            bad.append("the hook log has %d lines for %d runs" % (len(log.splitlines()), len(runs)))
+        seen = set()
+        if (t / "hook.log").exists():
+            for line in (t / "hook.log").read_text().splitlines():
+                d = json.loads(line)
+                seen.add((d["answer"], d["mode"]))
+        bad += ["%s/%s: no line in hook.log" % r for r in runs if r not in seen]
         say("T018-44", "FAIL" if bad else "PASS", "; ".join(bad))
     finally:
         shutil.rmtree(t, ignore_errors=True)
