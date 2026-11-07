@@ -115,9 +115,10 @@ def _below(path, roots, cwd):
 
 
 def _path_forms(path, roots=None, cwd=None, real=None):
-    """(whole, below) pairs, one per spelling. Every spelling shares the path's below part, which
-    is placed from the resolved form when there is one (a named path field with links followed)."""
-    below = _below(real or path, roots, cwd)
+    """(whole, below) pairs, one per spelling. Every spelling shares the below part of the path as
+    written (placed by text); a resolved form (links followed) is passed in as its own path and
+    places itself, so a link that leaves the project is matched whole."""
+    below = _below(path, roots, cwd)  # the text spelling places itself
     return [(f, f if below is None else below) for f in _forms(path)]
 
 
@@ -149,10 +150,12 @@ def rule_hit(rule, tool_name, tool_input, paths=None):
 def _link_targets(tool_name, tool_input, cwd):
     """{path field: its resolved path} for a non-Bash tool: the only place links are followed.
 
-    The resolved path is matched like any other path, and it places its own field below the
-    project root: a project under a folder named "production" keeps its files; a path that
-    resolves out of the project (a link out) is matched in full. The check only adds denies (the
-    link check of isolation). Every other candidate (Bash words, MCP strings) is placed by text.
+    The resolved path is matched like any other path, as its own entry, and places itself: one
+    that resolves inside the project is matched below the root, one that leaves it (a link out)
+    in full. The text spelling places itself too, so the check only adds denies to what the text
+    spelling gets, but with isolation off the text spelling alone decides: in a project under a
+    "prod" folder a link out is then allowed, where the whole path was denied before this rule.
+    Every other candidate (Bash words, MCP strings) is placed by text.
     """
     if tool_name == "Bash":
         return {}

@@ -156,7 +156,8 @@ def test_files_outside_the_project_stay_denied(tree, monkeypatch, on, cwd_linked
 
 def test_a_dotdot_after_the_link_stays_denied(tree):
     link = tree / "home" / "app"
-    # tmp/home/app/../../srv/production/other/x: the ".." after a link is read on the real folder
+    # tmp/home/app/../../srv/production/other/x: Claude Code folds the ".." as text, so the
+    # text spelling is outside the project and is matched whole
     path = "%s/../../production/other/x" % link
     assert (Path(path).resolve() == tree / "srv" / "production" / "other" / "x")
     assert pre("Read", {"file_path": path}, link, tree) == ("deny", "deny-prod-config")
@@ -309,10 +310,10 @@ def test_a_link_with_the_folder_name_inside_the_project(tree, monkeypatch, on):
     for base in (real, tree / "home" / "app"):
         for tool, tin in _file_calls(str(base / "production" / "x")):
             assert pre(tool, tin, real, tree) == ("deny", "deny-prod-config"), (tool, base)
-        # with isolation off no link is followed, so the spelling that names production below
-        # the root is denied like config/production; with it on, the link is read as src
+        # the spelling names production below the root, so it is denied in both modes, like a
+        # folder of that name: the text spelling places itself, the resolved form is its own entry
         assert pre("Read", {"file_path": str(base / "src" / "production" / "x.py")},
-                   real, tree)[0] == ("allow" if on else "deny")
+                   real, tree)[0] == "deny"
     # an in-project link to the project's own production config resolves to it with isolation
     # on; with it off no link is followed (the one stated limit), so the plain spelling passes
     (real / "cfg").symlink_to(real / "config" / "production")
@@ -412,3 +413,17 @@ def test_big_input_costs_no_disk_call_per_string(tree, monkeypatch):
     assert d is None and took < 5, took
     d, took = _timed({"file_path": "a/" * 2048, "k": "x"}, real, "Read")  # a long named field
     assert took < 5, took
+
+
+@pytest.mark.parametrize("on", [False, True], ids=MODES)
+def test_a_link_then_dotdot_out_of_the_project_is_denied(tree, monkeypatch, on):
+    """Round 3 judge case: Claude Code folds '..' as text, so the text spelling opens the
+    outside file."""
+    real = tree / "srv" / "prod" / "app"
+    real.mkdir(parents=True, exist_ok=True)
+    (real / "a" / "b").mkdir(parents=True)
+    (real / "l").symlink_to(real / "a" / "b")
+    (tree / "srv" / "prod" / "secrets.yaml").write_text("k: v\n")
+    _iso(tree, monkeypatch, on, real)
+    for tool, tin in _file_calls(str(real / "l" / ".." / ".." / "secrets.yaml")):
+        assert pre(tool, tin, real, tree) == ("deny", "deny-prod-config"), tool
