@@ -82,24 +82,42 @@ def _forms(path):
     return forms | {os.path.normpath(f) for f in forms}
 
 
-def _below(path, root, cwd):
+def _text_path(path, cwd):
+    """The path as the tool would name it: ~ expanded, joined to cwd, cleaned. No disk call."""
+    try:
+        return os.path.normpath(os.path.join(cwd, os.path.expanduser(path)))
+    except ValueError:  # a NUL byte cannot name a file
+        return None
+
+
+def _roots(cwd):
+    """The project folder (CLAUDE_PROJECT_DIR, else cwd), as written and resolved. Two disk-free
+    texts and one realpath of one short string per call, never one per candidate."""
+    proj = os.environ.get("CLAUDE_PROJECT_DIR") or cwd
+    return {r for r in (_text_path(proj, cwd), _real(proj, cwd)) if r}
+
+
+def _below(path, roots, cwd):
     """The part of the path below the project root, or None when the path is not inside it.
 
-    The test runs once per candidate path, on the path as the tool would open it: ~ expanded,
-    joined to the working folder, links followed. It is a resolved-path test with a "/" boundary,
-    never a text prefix, and not a test of each spelling alone: ~/p/src, ../p/src and /home/u/p/src
-    all name one file. A link out of the project, a ".." that leaves it and a sibling folder named
-    like it are all outside.
+    Text only, no disk call, so big or hostile input costs no more than normpath: ~ expanded,
+    joined to the hook's working folder, cleaned (a ".." is folded away), then compared with a "/"
+    boundary, never a text prefix. A sibling named like the project and a ".." that leaves it are
+    outside. Links are not followed here: the caller passes the resolved form of a named path
+    field of a file tool (from _link_targets) as `path`, and every other string as written.
     """
-    real = _real(path, cwd) if root and cwd else None
-    if real is not None and (real == root or real.startswith(root.rstrip("/") + "/")):
-        return real[len(root):]
+    p = _text_path(path, cwd) if roots and cwd else None
+    for root in roots if p else ():
+        r = root.rstrip("/")
+        if p == root or p.startswith(r + "/"):
+            return p[len(r):]
     return None
 
 
-def _path_forms(path, root=None, cwd=None):
-    """(whole, below) pairs, one per spelling. Every spelling shares the path's below part."""
-    below = _below(path, root, cwd)
+def _path_forms(path, roots=None, cwd=None, real=None):
+    """(whole, below) pairs, one per spelling. Every spelling shares the path's below part, which
+    is placed from the resolved form when there is one (a named path field with links followed)."""
+    below = _below(real or path, roots, cwd)
     return [(f, f if below is None else below) for f in _forms(path)]
 
 
@@ -129,17 +147,17 @@ def rule_hit(rule, tool_name, tool_input, paths=None):
 
 
 def _link_targets(tool_name, tool_input, cwd):
-    """The resolved form of each path field of a non-Bash tool.
+    """{path field: its resolved path} for a non-Bash tool: the only place links are followed.
 
-    Matched like any other form: a resolved path inside the project is matched below the project
-    root, so a project under a folder named "production" keeps its files; one that leaves the
-    project (a link out) is matched in full. The check only adds denies (the link check of
-    isolation).
+    The resolved path is matched like any other path, and it places its own field below the
+    project root: a project under a folder named "production" keeps its files; a path that
+    resolves out of the project (a link out) is matched in full. The check only adds denies (the
+    link check of isolation). Every other candidate (Bash words, MCP strings) is placed by text.
     """
     if tool_name == "Bash":
-        return []
-    reals = (_real(p, cwd) for p in _named_paths(tool_name, tool_input))
-    return [r for r in reals if r is not None]
+        return {}
+    reals = {p: _real(p, cwd) for p in _named_paths(tool_name, tool_input)}
+    return {p: r for p, r in reals.items() if r is not None}
 
 
 def match(policy, tool_name, tool_input, cwd=None, links=True):
@@ -152,8 +170,9 @@ def match(policy, tool_name, tool_input, cwd=None, links=True):
     tool rule. A shell text rule only asks and an ask does not stop the loop, so such a regex can
     delay a shipped shell ask. With cwd, a rule with "project_relative": true matches a path
     inside the project root (CLAUDE_PROJECT_DIR, else cwd) below that root, so a project that
-    sits in or behind a folder named "prod" keeps its files; with links, a path field of a
-    non-Bash tool is also matched in its resolved form (a link to a listed file).
+    sits in or behind a folder named "prod" keeps its files; that placement is text only. With
+    links, a path field of a non-Bash tool is also matched in its resolved form (a link to a
+    listed file); that is the only disk call per candidate.
     """
     cmd = tool_input.get("command") if tool_name == "Bash" else None
     if isinstance(cmd, str) and len(cmd) > MAX_COMMAND_CHARS:
@@ -162,11 +181,12 @@ def match(policy, tool_name, tool_input, cwd=None, links=True):
                         "Command is over %d characters, too long to check. Confirm it."
                         % MAX_COMMAND_CHARS, None)
     best = None
-    root = _real(os.environ.get("CLAUDE_PROJECT_DIR", ""), cwd) if cwd else None
+    roots = _roots(cwd) if cwd else None
     # once per call, not once per rule
-    paths = [_path_forms(p, root, cwd) for p in candidate_paths(tool_name, tool_input)]
-    if cwd and links:
-        paths += [_path_forms(p, root, cwd) for p in _link_targets(tool_name, tool_input, cwd)]
+    reals = _link_targets(tool_name, tool_input, cwd) if cwd and links else {}
+    paths = [_path_forms(p, roots, cwd, reals.get(p))
+             for p in candidate_paths(tool_name, tool_input)]
+    paths += [_path_forms(r, roots, cwd) for r in reals.values()]
     for r in policy["rules"]:
         if not rule_hit(r, tool_name, tool_input, paths):
             continue

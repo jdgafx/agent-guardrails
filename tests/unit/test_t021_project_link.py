@@ -172,9 +172,10 @@ def test_a_link_out_of_the_project_is_denied(tree, monkeypatch, on):
             if on:
                 assert d == ("deny", "deny-prod-config"), (tool, base)
             else:
-                # isolation off follows no links (T-008 case 43): not denied before, not now,
-                # except where the written path itself names production
-                assert d[0] == ("deny" if base == real else "allow"), (tool, base, d)
+                # Settled (Chris #586): links are followed only with isolation on. With it off the
+                # hook cannot know "leak" is a link, so the project's own spelling is allowed
+                # in both forms, as the linked form already was on main.
+                assert d[0] == "allow", (tool, base, d)
 
 
 @pytest.mark.parametrize("on", [False, True], ids=MODES)
@@ -308,13 +309,16 @@ def test_a_link_with_the_folder_name_inside_the_project(tree, monkeypatch, on):
     for base in (real, tree / "home" / "app"):
         for tool, tin in _file_calls(str(base / "production" / "x")):
             assert pre(tool, tin, real, tree) == ("deny", "deny-prod-config"), (tool, base)
+        # with isolation off no link is followed, so the spelling that names production below
+        # the root is denied like config/production; with it on, the link is read as src
         assert pre("Read", {"file_path": str(base / "src" / "production" / "x.py")},
-                   real, tree)[0] == "allow"
-    # an in-project link to the project's own production config still resolves to it
+                   real, tree)[0] == ("allow" if on else "deny")
+    # an in-project link to the project's own production config resolves to it with isolation
+    # on; with it off no link is followed (the one stated limit), so the plain spelling passes
     (real / "cfg").symlink_to(real / "config" / "production")
     for base in (real, tree / "home" / "app"):
         assert pre("Read", {"file_path": str(base / "cfg" / "db.yml")}, real, tree) == (
-            "deny", "deny-prod-config")
+            ("deny", "deny-prod-config") if on else ("allow", None))
 
 
 # (cwd below the project, own-file spellings, denied spellings) for a project at ~/prod/app
@@ -374,3 +378,37 @@ def test_vendor_copy_equals_core_and_demo_prints_24():
              "PYTHONPATH": "%s:%s" % (core.parent, ROOT / "packages/guardrails-demo/src")}).stdout
     assert "24 calls: 10 allow, 10 ask, 4 deny." in out
     assert "All decisions matched the fixtures." in out
+
+
+def _timed(tin, cwd, tool="mcp__x__bulk"):
+    import time
+
+    from guardrails_core import rules
+    t = time.monotonic()
+    d = rules.match(SHIPPED, tool, tin, str(cwd))
+    return d, time.monotonic() - t
+
+
+def test_big_input_costs_no_disk_call_per_string(tree, monkeypatch):
+    """Round 2 followed links on every candidate string: a 2 MB base64 string took 13.8 s and the
+    guard test's 2000 x 4096 characters 32 s, past the 10 s hook limit. Only the named path
+    fields are resolved now; every other string is placed by text alone. Each finishes well
+    under the hook limit, with links on (what isolation runs).
+    """
+    import base64
+    import os
+    real = tree / "srv" / "production" / "app"
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(real))
+    blob = base64.b64encode(os.urandom(1_500_000)).decode()  # 2 MB, has "/" like real uploads
+    assert len(blob) >= 2_000_000
+    calls = []
+    real_realpath = os.path.realpath
+    monkeypatch.setattr(os.path, "realpath", lambda p, *a, **k: (
+        calls.append(len(str(p))), real_realpath(p, *a, **k))[1])
+    d, took = _timed({"data": blob}, real)
+    assert took < 5, took
+    assert max(calls) < 1000, "a candidate string was resolved on disk"
+    d, took = _timed({"k": ["a/" * 2048 for _ in range(2000)]}, real)  # the t008 guard input
+    assert d is None and took < 5, took
+    d, took = _timed({"file_path": "a/" * 2048, "k": "x"}, real, "Read")  # a long named field
+    assert took < 5, took
