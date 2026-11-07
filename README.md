@@ -9,6 +9,8 @@ Alternatives set aside, one line each (full reasons: [ARCHITECTURE](docs/ARCHITE
 
 It uses only the Python standard library. No API key. No network. No pip install.
 
+Dashboard: open `index.html` in a browser (double-click it) to see the rules and a sample log, and add `?states=1` to the address to preview every state.
+
 ## The seven controls
 
 Words used here (hook, policy, step cap, deny, ask, allow, MCP, bypass mode) are defined in [GLOSSARY](GLOSSARY.md).

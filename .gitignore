@@ -6,3 +6,4 @@ __pycache__/
 *.egg-info/
 dist/
 tests/live/last_run.txt
+node_modules/
