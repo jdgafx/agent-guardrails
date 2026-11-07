@@ -20,6 +20,7 @@
           "kind": { "enum": ["path", "command", "tool"] },
           "match": { "type": "array", "minItems": 1, "items": { "type": "string" } },
           "except": { "type": "array", "items": { "type": "string" } },
+          "project_relative": { "type": "boolean" },
           "reason": { "type": "string" }
         }
       }

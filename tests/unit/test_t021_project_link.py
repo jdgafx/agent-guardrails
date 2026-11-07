@@ -223,14 +223,98 @@ def test_secret_files_stay_denied_when_the_project_root_is_home(tree, monkeypatc
     assert pre("Read", {"file_path": str(home / "notes.txt")}, home, tree)[0] == "allow"
 
 
-def test_a_user_glob_that_starts_with_a_slash_keeps_the_whole_path(tree):
+def test_only_a_rule_with_project_relative_matches_below_the_root(tree):
+    """A user rule without the field keeps whole-path matching; with it, matches below the root."""
     from guardrails_core import rules
     real = tree / "srv" / "production" / "app"
-    pol = {"rules": [{"id": "mine", "kind": "path", "decision": "deny", "reason": "r",
-                      "match": [str(real) + "/vault/*"]}]}
     tin = {"file_path": str(real / "vault" / "a")}
-    assert rules.match(pol, "Read", tin, str(real)).rule == "mine"
-    assert rules.match(pol, "Read", {"file_path": str(real / "src" / "x.py")}, str(real)) is None
+
+    def pol(**extra):
+        return {"rules": [dict({"id": "mine", "kind": "path", "decision": "deny", "reason": "r",
+                                "match": ["*/production/app/vault/*"]}, **extra)]}
+    assert rules.match(pol(), "Read", tin, str(real)).rule == "mine"
+    assert rules.match(pol(project_relative=False), "Read", tin, str(real)).rule == "mine"
+    assert rules.match(pol(project_relative=True), "Read", tin, str(real)) is None
+    below = {"rules": [dict(pol(project_relative=True)["rules"][0], match=["*/vault/*"])]}
+    assert rules.match(below, "Read", tin, str(real)).rule == "mine"
+
+
+def test_only_the_folder_rule_is_project_relative():
+    flagged = [r["id"] for r in SHIPPED["rules"] if r.get("project_relative")]
+    assert flagged == ["deny-prod-config"]
+
+
+@pytest.mark.parametrize("bad", ["yes", 1, None, [], {}])
+def test_project_relative_must_be_a_boolean(tree, bad):
+    from guardrails_core import policy
+    schema = json.loads((PLUGIN / "policy.schema.json").read_text())
+    rule = {"id": "r", "decision": "deny", "kind": "path", "match": ["*"], "reason": "r"}
+    policy.validate({"version": 1, "rules": [dict(rule, project_relative=True)]}, schema)
+    with pytest.raises(policy.PolicyError):
+        policy.validate({"version": 1, "rules": [dict(rule, project_relative=bad)]}, schema)
+    # an added file with the bad value is left out and reported, the shipped rules still apply
+    f = tree / "added.json"
+    f.write_text(json.dumps({"version": 1, "rules": [dict(rule, project_relative=bad)]}))
+    import os
+    os.environ["GUARDRAILS_POLICY"] = str(f)
+    try:
+        pol, errors = policy.load_policy(str(PLUGIN), None)
+    finally:
+        del os.environ["GUARDRAILS_POLICY"]
+    assert errors and all(r["id"] != "r" for r in pol["rules"])
+
+
+@pytest.mark.parametrize("on", [False, True], ids=MODES)
+@pytest.mark.parametrize("sub", [".ssh", ".aws", ".kube", ".docker", ".config/gcloud"])
+def test_a_project_rooted_at_a_secret_folder_keeps_its_denies(tree, monkeypatch, on, sub):
+    home = tree / "home"
+    root = home / sub
+    root.mkdir(parents=True)
+    names = ("id_ecdsa", "config", "credentials", "config.json",
+             "application_default_credentials.json")
+    for n in names:
+        (root / n).write_text("k")
+    _iso(tree, monkeypatch, on, root)
+    denied = {".ssh": ("id_ecdsa", "config"), ".aws": ("credentials", "config"),
+              ".kube": ("config",), ".docker": ("config.json",),
+              ".config/gcloud": ("application_default_credentials.json", "credentials")}[sub]
+    for n in denied:
+        for tool, tin in _file_calls(str(root / n)):
+            assert pre(tool, tin, root, tree)[0] == "deny", (tool, root / n)
+        assert pre("Bash", {"command": "cat %s" % (root / n)}, root, tree)[0] == "ask", n
+
+
+@pytest.mark.parametrize("on", [False, True], ids=MODES)
+def test_an_env_file_stays_denied_in_a_project_under_production(tree, monkeypatch, on):
+    real = tree / "srv" / "production" / "app"
+    (real / ".env").write_text("K=1\n")
+    _iso(tree, monkeypatch, on, real)
+    for base in (real, tree / "home" / "app"):
+        assert pre("Read", {"file_path": str(base / ".env")}, real, tree) == (
+            "deny", "deny-env-files")
+
+
+@pytest.mark.parametrize("on", [False, True], ids=MODES)
+def test_a_link_with_the_folder_name_inside_the_project(tree, monkeypatch, on):
+    """Side effect 2: an in-project link named production.
+
+    To a place outside the project it resolves out, so it is matched in full and denied. To a
+    place inside the project it is the project's own file, matched below the root, and allowed.
+    """
+    real = tree / "srv" / "production" / "app"
+    (real / "production").symlink_to(tree / "srv" / "production" / "other")
+    (real / "src" / "production").symlink_to(real / "src")
+    _iso(tree, monkeypatch, on, real)
+    for base in (real, tree / "home" / "app"):
+        for tool, tin in _file_calls(str(base / "production" / "x")):
+            assert pre(tool, tin, real, tree) == ("deny", "deny-prod-config"), (tool, base)
+        assert pre("Read", {"file_path": str(base / "src" / "production" / "x.py")},
+                   real, tree)[0] == "allow"
+    # an in-project link to the project's own production config still resolves to it
+    (real / "cfg").symlink_to(real / "config" / "production")
+    for base in (real, tree / "home" / "app"):
+        assert pre("Read", {"file_path": str(base / "cfg" / "db.yml")}, real, tree) == (
+            "deny", "deny-prod-config")
 
 
 def test_vendor_copy_equals_core_and_demo_prints_24():

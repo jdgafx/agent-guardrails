@@ -64,18 +64,13 @@ def candidate_paths(tool_name, tool_input):
     return out
 
 
-def _glob_hit(form, glob):
-    """Globs without a slash match the file name. Others match the path below the project root
-    (the whole path for a path outside it). A glob that starts with / names one exact place, so
-    it is matched against the whole path.
-    """
-    whole, below = form
-    glob = glob.lower()
+def _glob_hit(path, glob):
+    """Globs without a slash match the file name. Others match the whole path."""
+    path, glob = path.lower(), glob.lower()
     if "/" in glob:
-        path = whole if glob.startswith("/") else below
-        full = "/" + path.lower().lstrip("/")  # so "*/.ssh/*" also matches ".ssh/id_rsa"
+        full = "/" + path.lstrip("/")  # so "*/.ssh/*" also matches ".ssh/id_rsa"
         return fnmatch.fnmatchcase(full, glob)
-    return fnmatch.fnmatchcase(os.path.basename(whole).lower(), glob)
+    return fnmatch.fnmatchcase(os.path.basename(path), glob)
 
 
 def _forms(path):
@@ -108,9 +103,14 @@ def _path_forms(path, root=None):
 
 
 def path_hit(forms, rule):
-    """A form is denied when it matches and no except glob of the same rule excuses that form."""
-    return any(_glob_hit(f, g) for f in forms for g in rule["match"]
-               if not any(_glob_hit(f, e) for e in rule.get("except", [])))
+    """A form is denied when it matches and no except glob of the same rule excuses that form.
+
+    forms are (whole, below) pairs. A rule with "project_relative": true is matched on the part
+    below the project root; every other rule on the whole path.
+    """
+    i = 1 if rule.get("project_relative") is True else 0
+    return any(_glob_hit(f[i], g) for f in forms for g in rule["match"]
+               if not any(_glob_hit(f[i], e) for e in rule.get("except", [])))
 
 
 def rule_hit(rule, tool_name, tool_input, paths=None):
@@ -149,10 +149,10 @@ def match(policy, tool_name, tool_input, cwd=None, links=True):
     Returns None when no rule matches. The shipped rules come first and the loop stops at the
     first deny, so a slow regex in an added policy file cannot delay a deny on a file tool or a
     tool rule. A shell text rule only asks and an ask does not stop the loop, so such a regex can
-    delay a shipped shell ask. With cwd, a path inside the project root (CLAUDE_PROJECT_DIR, else
-    cwd) is matched below that root, so a project that sits in or behind a folder named "prod"
-    keeps its files, and with links also a path field of a non-Bash tool is matched in its
-    resolved form (a link to a listed file).
+    delay a shipped shell ask. With cwd, a rule with "project_relative": true matches a path
+    inside the project root (CLAUDE_PROJECT_DIR, else cwd) below that root, so a project that
+    sits in or behind a folder named "prod" keeps its files; with links, a path field of a
+    non-Bash tool is also matched in its resolved form (a link to a listed file).
     """
     cmd = tool_input.get("command") if tool_name == "Bash" else None
     if isinstance(cmd, str) and len(cmd) > MAX_COMMAND_CHARS:
