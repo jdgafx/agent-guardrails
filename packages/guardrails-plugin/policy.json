@@ -32,6 +32,7 @@
       "decision": "deny",
       "kind": "path",
       "match": ["*/prod/*", "*/production/*", "*.prod.yaml", "*.prod.yml", "*.prod.json", "*.prod.tfvars"],
+      "project_relative": true,
       "reason": "Production config is off limits. Use a human-run process for production."
     },
     {

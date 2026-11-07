@@ -121,7 +121,7 @@ def run_pre(raw, root, data):
                 return pre_json(d.decision, "[%s] %s" % (d.rule, d.reason))
             return _logged_error_ask(data, p, e, _count(data, p))
         on = pol.get("isolation") is True
-        d = rules.stronger(guard, rules.match(pol, tool, tin, cwd if on else None))
+        d = rules.stronger(guard, rules.match(pol, tool, tin, cwd, links=on))
         if on and tool in isolation.SHELL_TOOLS:
             d = rules.stronger(d, _tripwire(pol, root, cwd))
         if d is None and errors:
