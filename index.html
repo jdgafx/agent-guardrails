@@ -144,7 +144,7 @@
       --kind-cmd-bg: #f3ebff;
       --kind-cmd-border: #c297ff;
 
-      --kind-tool-fg: #0550ae;
+      --kind-tool-fg: #00628f;
       --kind-tool-bg: #ddf4ff;
       --kind-tool-border: #80ccff;
 
@@ -1156,8 +1156,9 @@
 
     /* Syntax-tinted Tool Pills */
     .event-tool-pill {
-      display: inline-flex;
-      align-items: center;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1.4;
       font-family: var(--font-mono);
       font-size: var(--fs-meta);
       font-weight: 600;
@@ -2286,12 +2287,13 @@
 
         if (activeBanner) {
           bannerEl.className = "state-banner visible " + activeBanner.level;
-          bannerTitle.textContent = activeBanner.title;
-          bannerDesc.textContent = activeBanner.desc;
+          // Write only on change, so the live region speaks only when the message changes.
+          if (bannerTitle.textContent !== activeBanner.title) bannerTitle.textContent = activeBanner.title;
+          if (bannerDesc.textContent !== activeBanner.desc) bannerDesc.textContent = activeBanner.desc;
         } else {
           bannerEl.className = "state-banner";
-          bannerTitle.textContent = "";
-          bannerDesc.textContent = "";
+          if (bannerTitle.textContent) bannerTitle.textContent = "";
+          if (bannerDesc.textContent) bannerDesc.textContent = "";
         }
 
         // Tile: Plugin
@@ -2459,9 +2461,9 @@
         state.filters.rule = state.filters.rule === ruleId ? "all" : ruleId;
         syncFilterControls();
         renderAll();
-        if (state.filters.rule !== "all") {
-          announce("Filtered by rule " + ruleId + ": " + document.getElementById("events-count").textContent + " events");
-        }
+        announce(state.filters.rule !== "all"
+          ? "Filtered by rule " + ruleId + ": " + document.getElementById("events-count").textContent + " events"
+          : "Rule filter cleared: " + document.getElementById("events-count").textContent + " events");
       }
 
       function buildRuleItem(rule) {
@@ -2736,6 +2738,9 @@
             state.filters.rule = "all";
             syncFilterControls();
             renderAll();
+            // The chip, with this button, is gone: focus goes to the rule filter and the change is spoken.
+            document.getElementById("filter-rule").focus();
+            announce("Rule filter cleared: " + document.getElementById("events-count").textContent + " events");
           });
           chip.appendChild(closeBtn);
           chipContainer.appendChild(chip);
@@ -3020,11 +3025,23 @@
 
       /* Safety net: what had focus, and where each list was scrolled, before a render. */
       function captureUi() {
-        return {
+        var eventsList = document.getElementById("events-list");
+        var snap = {
           focusId: focusIdOf(document.activeElement),
           rulesTop: document.getElementById("rules-list").scrollTop,
-          eventsTop: document.getElementById("events-list").scrollTop
+          eventsTop: eventsList.scrollTop,
+          anchor: null
         };
+        // New rows go in above the view, so a pixel offset would move the content. Hold the first
+        // row in view instead (browsers without scroll anchoring need this too).
+        if (snap.eventsTop > 0) {
+          var listTop = eventsList.getBoundingClientRect().top;
+          for (var n = eventsList.firstElementChild; n; n = n.nextElementSibling) {
+            var r = n.getBoundingClientRect();
+            if (r.bottom > listTop) { snap.anchor = { node: n, offset: r.top - listTop }; break; }
+          }
+        }
+        return snap;
       }
 
       function restoreUi(snap) {
@@ -3037,7 +3054,12 @@
         var rulesList = document.getElementById("rules-list");
         var eventsList = document.getElementById("events-list");
         if (rulesList.scrollTop !== snap.rulesTop) rulesList.scrollTop = snap.rulesTop;
-        if (eventsList.scrollTop !== snap.eventsTop) eventsList.scrollTop = snap.eventsTop;
+        if (snap.anchor && snap.anchor.node.parentNode === eventsList) {
+          var shift = (snap.anchor.node.getBoundingClientRect().top - eventsList.getBoundingClientRect().top) - snap.anchor.offset;
+          if (shift) eventsList.scrollTop += shift;
+        } else if (eventsList.scrollTop !== snap.eventsTop) {
+          eventsList.scrollTop = snap.eventsTop;
+        }
       }
 
       function renderAll() {
