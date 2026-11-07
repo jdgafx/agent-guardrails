@@ -4,7 +4,26 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>agent-guardrails · Firewall Status &amp; Security Events</title>
+  <script>
+    /* Sets the theme before the first paint: saved choice, else the OS setting. Storage may be blocked. */
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem("agent-guardrails-theme"); } catch (e) { t = null; }
+      if (t !== "light" && t !== "dark") {
+        t = (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) ? "light" : "dark";
+      }
+      document.documentElement.setAttribute("data-theme", t);
+    })();
+  </script>
   <style>
+    :root {
+      /* Type scale: four sizes only. Nothing under 12px. */
+      --fs-meta: 12px;   /* meta, badges, labels */
+      --fs-row: 13px;    /* rows, mono targets, controls */
+      --fs-body: 14px;   /* body */
+      --fs-value: 20px;  /* tile values */
+    }
+
     :root, [data-theme="dark"] {
       --bg-canvas: #07090d;
       --bg-surface: #0d1117;
@@ -14,15 +33,17 @@
       --bg-code: #090c10;
       --border-subtle: #212832;
       --border-strong: #303946;
+      --border-control: #768390;
       --border-focus: #58a6ff;
 
       --text-primary: #edf2f7;
       --text-secondary: #9ba5b4;
-      --text-muted: #6e7887;
+      --text-muted: #8b949e;
 
       --accent-blue: #58a6ff;
       --accent-blue-bg: rgba(56, 139, 253, 0.16);
       --accent-blue-border: rgba(88, 166, 255, 0.45);
+      --brand-glow: rgba(88, 166, 255, 0.15);
 
       /* Decisions - Richer, higher-contrast WAF palette */
       --deny-fg: #ff7b72;
@@ -30,12 +51,14 @@
       --deny-bg: rgba(248, 81, 73, 0.16);
       --deny-border: rgba(248, 81, 73, 0.5);
       --deny-glow: rgba(248, 81, 73, 0.08);
+      --deny-edge: rgba(248, 81, 73, 0.45);
 
       --ask-fg: #f7b93e;
       --ask-solid: #d29922;
       --ask-bg: rgba(210, 153, 34, 0.17);
       --ask-border: rgba(247, 185, 62, 0.5);
       --ask-glow: rgba(210, 153, 34, 0.08);
+      --ask-edge: rgba(247, 185, 62, 0.45);
 
       --allow-fg: #56d364;
       --allow-solid: #2ea043;
@@ -47,6 +70,7 @@
       --kind-path-fg: #39d0d8;
       --kind-path-bg: rgba(57, 208, 216, 0.13);
       --kind-path-border: rgba(57, 208, 216, 0.4);
+      --kind-path-glow: rgba(57, 208, 216, 0.08);
 
       --kind-cmd-fg: #c297ff;
       --kind-cmd-bg: rgba(163, 113, 247, 0.15);
@@ -78,15 +102,17 @@
       --bg-code: #f4f7fa;
       --border-subtle: #d0d7de;
       --border-strong: #9ca6b2;
+      --border-control: #6e7781;
       --border-focus: #0969da;
 
       --text-primary: #1b1f24;
       --text-secondary: #4d5761;
-      --text-muted: #656d76;
+      --text-muted: #57606a;
 
-      --accent-blue: #0969da;
+      --accent-blue: #0550ae;
       --accent-blue-bg: rgba(9, 105, 218, 0.11);
       --accent-blue-border: rgba(9, 105, 218, 0.4);
+      --brand-glow: rgba(9, 105, 218, 0.18);
 
       /* Decisions - WCAG AA compliant on light */
       --deny-fg: #b62324;
@@ -94,12 +120,14 @@
       --deny-bg: #ffebe9;
       --deny-border: #ff8182;
       --deny-glow: rgba(207, 34, 46, 0.05);
+      --deny-edge: rgba(207, 34, 46, 0.5);
 
       --ask-fg: #7d4e00;
-      --ask-solid: #bf8700;
+      --ask-solid: #9a6700;
       --ask-bg: #fff8c5;
       --ask-border: #d4a72c;
-      --ask-glow: rgba(191, 135, 0, 0.06);
+      --ask-glow: rgba(154, 103, 0, 0.06);
+      --ask-edge: rgba(154, 103, 0, 0.5);
 
       --allow-fg: #116329;
       --allow-solid: #1a7f37;
@@ -110,6 +138,7 @@
       --kind-path-fg: #055d67;
       --kind-path-bg: #dff7f9;
       --kind-path-border: #6bd7e2;
+      --kind-path-glow: rgba(5, 93, 103, 0.07);
 
       --kind-cmd-fg: #5e309d;
       --kind-cmd-bg: #f3ebff;
@@ -133,13 +162,17 @@
       box-sizing: border-box;
     }
 
+    [hidden] {
+      display: none !important;
+    }
+
     html, body {
       margin: 0;
       padding: 0;
       background: var(--bg-canvas);
       color: var(--text-primary);
       font-family: var(--font-sans);
-      font-size: 13px;
+      font-size: var(--fs-body);
       line-height: 1.45;
       -webkit-font-smoothing: antialiased;
     }
@@ -157,21 +190,71 @@
       outline: 2px solid var(--border-focus);
       outline-offset: 2px;
     }
+    /* Inside a scrolling list the ring must sit inside the box, or the list clips it. */
+    .rule-row:focus-visible,
+    .event-toggle:focus-visible,
+    .rule-link-btn:focus-visible {
+      outline-offset: -2px;
+    }
 
     button, select, input {
       font-family: inherit;
       font-size: inherit;
       color: inherit;
     }
+    /* Targets: 24px everywhere (WCAG 2.5.8), 44px on touch screens. */
+    button, select {
+      min-height: 24px;
+      min-width: 24px;
+    }
+    @media (pointer: coarse) {
+      button, select, .skip-link {
+        min-height: 44px;
+        min-width: 44px;
+      }
+    }
 
     code {
       font-family: var(--font-mono);
-      font-size: 0.92em;
+      font-size: inherit;
       padding: 1px 4px;
       border-radius: 3px;
       background: var(--bg-elevated);
       border: 1px solid var(--border-subtle);
       color: var(--accent-blue);
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .skip-link {
+      position: absolute;
+      left: 8px;
+      top: 8px;
+      z-index: 20;
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 14px;
+      font-size: var(--fs-row);
+      font-weight: 600;
+      color: var(--text-primary);
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-control);
+      border-radius: 4px;
+      text-decoration: none;
+      transform: translateY(-300%);
+    }
+    .skip-link:focus {
+      transform: none;
     }
 
     /* Preview State Switcher (?states=1) */
@@ -183,7 +266,7 @@
       padding: 7px 16px;
       background: linear-gradient(90deg, var(--bg-elevated), var(--bg-surface));
       border-bottom: 1px solid var(--border-strong);
-      font-size: 12px;
+      font-size: var(--fs-meta);
     }
     .state-switcher.visible {
       display: flex;
@@ -204,12 +287,12 @@
     }
     .state-btn {
       background: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
+      border: 1px solid var(--border-control);
       color: var(--text-secondary);
       padding: 3px 9px;
       border-radius: 4px;
       cursor: pointer;
-      font-size: 11px;
+      font-size: var(--fs-meta);
       font-family: var(--font-mono);
       transition: all 0.12s ease;
     }
@@ -240,6 +323,8 @@
       display: flex;
       align-items: center;
       gap: 10px;
+      flex-wrap: wrap;
+      min-width: 0;
     }
     .brand-icon {
       width: 24px;
@@ -251,18 +336,19 @@
       background: var(--accent-blue-bg);
       border: 1px solid var(--accent-blue-border);
       color: var(--accent-blue);
-      box-shadow: 0 0 12px rgba(88, 166, 255, 0.15);
+      box-shadow: 0 0 12px var(--brand-glow);
     }
     .brand-title {
+      margin: 0;
       font-family: var(--font-mono);
       font-weight: 700;
-      font-size: 14.5px;
+      font-size: var(--fs-body);
       letter-spacing: -0.02em;
       color: var(--text-primary);
     }
     .brand-subtitle {
       color: var(--text-secondary);
-      font-size: 12px;
+      font-size: var(--fs-meta);
       border-left: 1px solid var(--border-strong);
       padding-left: 10px;
     }
@@ -277,7 +363,7 @@
       align-items: center;
       gap: 6px;
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: var(--fs-meta);
       font-weight: 600;
       padding: 2px 9px;
       border-radius: 999px;
@@ -291,29 +377,27 @@
       background: var(--ask-bg);
     }
     .readonly-hint {
-      font-size: 11.5px;
+      font-size: var(--fs-meta);
       color: var(--text-secondary);
       font-family: var(--font-mono);
     }
     .theme-btn, .download-btn {
       background: var(--bg-elevated);
-      border: 1px solid var(--border-strong);
+      border: 1px solid var(--border-control);
       border-radius: 5px;
       padding: 4px 10px;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      font-size: 12px;
+      font-size: var(--fs-meta);
       font-weight: 500;
       color: var(--text-primary);
     }
     .download-btn {
       background: var(--accent-blue-bg);
-      border-color: var(--accent-blue-border);
       color: var(--accent-blue);
       font-family: var(--font-mono);
-      font-size: 11.5px;
       font-weight: 600;
     }
     .theme-btn:hover, .download-btn:hover {
@@ -329,7 +413,7 @@
       gap: 12px;
       padding: 10px 16px;
       border-bottom: 1px solid var(--border-subtle);
-      font-size: 12.5px;
+      font-size: var(--fs-row);
     }
     .state-banner.visible {
       display: flex;
@@ -356,6 +440,7 @@
       display: flex;
       flex-direction: column;
       gap: 2px;
+      min-width: 0;
     }
     .state-banner-title {
       font-weight: 700;
@@ -366,7 +451,8 @@
     .state-banner-desc {
       color: var(--text-primary);
       font-family: var(--font-mono);
-      font-size: 12px;
+      font-size: var(--fs-meta);
+      overflow-wrap: anywhere;
     }
 
     /* Posture Strip (5 Color-Accented Tiles) */
@@ -381,15 +467,19 @@
       .posture-strip {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
+      .posture-tile:last-child {
+        grid-column: 1 / -1;
+      }
     }
     .posture-tile {
       background: var(--bg-surface);
       padding: 11px 14px 10px 14px;
       display: flex;
       flex-direction: column;
-      justify-content: space-between;
-      gap: 5px;
-      min-height: 76px;
+      justify-content: flex-start;
+      gap: 8px;
+      min-height: 96px;
+      min-width: 0;
       position: relative;
       border-top: 3px solid var(--border-strong);
       transition: background 0.15s ease;
@@ -408,16 +498,16 @@
     }
     .posture-tile.tone-cyan {
       border-top-color: var(--kind-path-fg);
-      background: linear-gradient(180deg, rgba(57, 208, 216, 0.08) 0%, var(--bg-surface) 70%);
+      background: linear-gradient(180deg, var(--kind-path-glow) 0%, var(--bg-surface) 70%);
     }
     .posture-tile.tone-neutral {
       border-top-color: var(--border-strong);
     }
 
     .tile-label {
-      font-size: 11px;
+      font-size: var(--fs-meta);
       text-transform: uppercase;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.04em;
       color: var(--text-secondary);
       font-weight: 700;
       display: flex;
@@ -429,18 +519,25 @@
       align-items: center;
       gap: 8px;
       flex-wrap: wrap;
+      min-width: 0;
     }
     .tile-value {
       font-family: var(--font-mono);
-      font-size: 14.5px;
+      font-size: var(--fs-value);
       font-weight: 700;
+      line-height: 1.2;
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      flex-wrap: wrap;
+      gap: 6px 8px;
+      min-width: 0;
+      overflow-wrap: anywhere;
       color: var(--text-primary);
+      font-variant-numeric: tabular-nums;
     }
     .tile-sub {
-      font-size: 11px;
+      margin-top: auto;
+      font-size: var(--fs-meta);
       color: var(--text-secondary);
       font-family: var(--font-mono);
       white-space: nowrap;
@@ -499,7 +596,7 @@
       align-items: center;
       gap: 4px;
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: var(--fs-meta);
       font-weight: 700;
       text-transform: uppercase;
       padding: 2px 7px;
@@ -538,9 +635,12 @@
       min-height: calc(100vh - 220px);
       border-bottom: 1px solid var(--border-subtle);
     }
+    .rules-pane, .events-pane {
+      min-width: 0;
+    }
     @media (max-width: 1024px) {
       .workspace {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
       }
     }
 
@@ -559,6 +659,21 @@
         border-bottom: 1px solid var(--border-subtle);
       }
     }
+    @media (max-width: 768px) {
+      .events-pane {
+        order: -1;
+      }
+      .rules-pane {
+        border-bottom: none;
+        border-top: 1px solid var(--border-subtle);
+      }
+    }
+    .rules-body {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+    }
     .pane-header {
       padding: 10px 14px;
       border-bottom: 1px solid var(--border-subtle);
@@ -570,87 +685,130 @@
       flex-wrap: wrap;
     }
     .pane-title {
+      margin: 0;
       font-weight: 700;
-      font-size: 12px;
+      font-size: var(--fs-meta);
       text-transform: uppercase;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.04em;
       display: flex;
       align-items: center;
       gap: 8px;
       color: var(--text-primary);
     }
+    .pane-title-text {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .pane-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: transparent;
+      border: 1px solid var(--border-control);
+      border-radius: 5px;
+      padding: 2px 10px;
+      cursor: pointer;
+      font-size: var(--fs-meta);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-primary);
+    }
+    .pane-toggle:hover {
+      background: var(--bg-hover);
+    }
+    .pane-toggle svg {
+      width: 12px;
+      height: 12px;
+      transition: transform 0.12s ease;
+    }
+    .pane-toggle[aria-expanded="true"] svg {
+      transform: rotate(90deg);
+    }
     .count-pill {
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: var(--fs-meta);
       font-weight: 700;
       padding: 1px 7px;
       border-radius: 99px;
       background: var(--accent-blue-bg);
       border: 1px solid var(--accent-blue-border);
       color: var(--accent-blue);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0;
     }
     .edit-file-hint {
-      font-size: 11px;
+      font-size: var(--fs-meta);
       color: var(--text-secondary);
       font-family: var(--font-mono);
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
     .rules-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
       overflow-y: auto;
       flex: 1;
+      min-height: 0;
     }
-    .rule-row {
-      padding: 9px 14px;
+    .rule-item {
+      padding: 8px 14px 9px 11px;
       border-bottom: 1px solid var(--border-subtle);
+      border-left: 3px solid transparent;
       cursor: pointer;
       transition: background 0.1s ease;
       display: flex;
       flex-direction: column;
       gap: 5px;
-      text-align: left;
-      width: 100%;
-      background: transparent;
-      border-left: 3px solid transparent;
-      border-top: none;
-      border-right: none;
+      min-width: 0;
     }
-    .rule-row.rule-deny {
-      border-left-color: rgba(248, 81, 73, 0.45);
+    .rule-item.rule-deny {
+      border-left-color: var(--deny-edge);
     }
-    .rule-row.rule-ask {
-      border-left-color: rgba(247, 185, 62, 0.45);
+    .rule-item.rule-ask {
+      border-left-color: var(--ask-edge);
     }
-    .rule-row:hover {
+    .rule-item:hover {
       background: var(--bg-hover);
     }
-    .rule-row.active {
+    .rule-item.active {
       background: var(--bg-selected);
       border-left-color: var(--accent-blue);
     }
     .rule-top {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 6px;
-      flex-wrap: wrap;
-    }
-    .rule-id-group {
-      display: flex;
-      align-items: center;
       gap: 6px;
       flex-wrap: wrap;
       min-width: 0;
     }
+    .rule-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      padding: 1px 6px 1px 2px;
+      margin-left: -2px;
+      background: transparent;
+      border: 0;
+      border-radius: 4px;
+      cursor: pointer;
+      text-align: left;
+    }
     .rule-id {
       font-family: var(--font-mono);
       font-weight: 600;
-      font-size: 12.5px;
+      font-size: var(--fs-row);
       color: var(--text-primary);
+      overflow-wrap: anywhere;
     }
 
     /* Semantic Kind Badges */
     .kind-badge {
       font-family: var(--font-mono);
-      font-size: 10.5px;
+      font-size: var(--fs-meta);
       font-weight: 600;
       padding: 1px 6px;
       border-radius: 3px;
@@ -675,7 +833,7 @@
 
     .origin-badge, .shell-note-badge {
       font-family: var(--font-mono);
-      font-size: 10.5px;
+      font-size: var(--fs-meta);
       padding: 1px 5px;
       border-radius: 3px;
       border: 1px solid var(--border-subtle);
@@ -690,13 +848,15 @@
       font-weight: 600;
     }
     .rule-hit-count {
+      margin-left: auto;
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: var(--fs-meta);
       color: var(--text-muted);
       padding: 1px 6px;
       border-radius: 99px;
       background: var(--bg-elevated);
       border: 1px solid var(--border-subtle);
+      font-variant-numeric: tabular-nums;
     }
     .rule-hit-count.has-hits {
       color: var(--text-primary);
@@ -704,13 +864,14 @@
       font-weight: 600;
     }
     .rule-reason {
-      font-size: 12px;
+      font-size: var(--fs-row);
       color: var(--text-secondary);
+      min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .rule-row.active .rule-reason {
+    .rule-item.active .rule-reason {
       white-space: normal;
       color: var(--text-primary);
     }
@@ -720,12 +881,13 @@
       padding-top: 6px;
       border-top: 1px dashed var(--border-strong);
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: var(--fs-meta);
       color: var(--text-secondary);
       flex-direction: column;
       gap: 4px;
+      min-width: 0;
     }
-    .rule-row.active .rule-details {
+    .rule-item.active .rule-details {
       display: flex;
     }
     .rule-pattern-list {
@@ -768,38 +930,42 @@
       align-items: center;
       gap: 6px;
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: var(--fs-meta);
       font-weight: 600;
       padding: 2px 8px;
       border-radius: 4px;
-      border: 1px solid var(--border-subtle);
+      border: 1px solid var(--border-control);
       background: var(--bg-elevated);
       cursor: pointer;
-      transition: transform 0.08s ease;
+      font-variant-numeric: tabular-nums;
     }
     .telemetry-pill:hover {
-      border-color: var(--border-strong);
+      border-color: var(--border-focus);
+    }
+    .telemetry-pill[aria-pressed="true"] {
+      border-color: var(--border-focus);
+      box-shadow: inset 0 0 0 1px var(--border-focus), inset 0 2px 5px rgba(0, 0, 0, 0.28);
     }
     .telemetry-pill.deny-pill {
       color: var(--deny-fg);
-      border-color: var(--deny-border);
       background: var(--deny-bg);
     }
     .telemetry-pill.ask-pill {
       color: var(--ask-fg);
-      border-color: var(--ask-border);
       background: var(--ask-bg);
     }
     .telemetry-pill.allow-pill {
       color: var(--allow-fg);
-      border-color: var(--allow-border);
       background: var(--allow-bg);
     }
     .telemetry-pill.inj-pill {
       color: var(--inj-fg);
-      border-color: var(--inj-border);
       background: var(--inj-bg);
-      cursor: default;
+    }
+    .telemetry-legend {
+      margin: 0;
+      font-size: var(--fs-meta);
+      color: var(--text-secondary);
     }
     .distribution-bar {
       height: 5px;
@@ -830,25 +996,26 @@
       gap: 4px;
     }
     .filter-label {
-      font-size: 11px;
+      font-size: var(--fs-meta);
       color: var(--text-secondary);
       font-family: var(--font-mono);
     }
     .filter-select {
       background: var(--bg-elevated);
-      border: 1px solid var(--border-strong);
+      border: 1px solid var(--border-control);
       border-radius: 4px;
       padding: 3px 6px;
-      font-size: 12px;
+      font-size: var(--fs-row);
       font-family: var(--font-mono);
       color: var(--text-primary);
+      max-width: 100%;
     }
     .clear-filters-btn {
       background: var(--bg-elevated);
-      border: 1px solid var(--border-strong);
+      border: 1px solid var(--border-control);
       border-radius: 4px;
       padding: 3px 8px;
-      font-size: 11px;
+      font-size: var(--fs-meta);
       font-family: var(--font-mono);
       cursor: pointer;
       color: var(--text-secondary);
@@ -862,33 +1029,38 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      padding: 2px 8px;
+      padding: 0 0 0 8px;
       border-radius: 4px;
       background: var(--accent-blue-bg);
       border: 1px solid var(--accent-blue);
       color: var(--text-primary);
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: var(--fs-meta);
       font-weight: 600;
+      overflow-wrap: anywhere;
     }
     .active-rule-chip button {
       background: none;
       border: none;
       color: inherit;
       cursor: pointer;
-      padding: 0 2px;
+      padding: 0 6px;
       font-weight: bold;
+      font-size: var(--fs-row);
     }
 
     /* Events Table Header & Rows */
+    .events-pane {
+      --ev-cols: 98px 96px 150px minmax(0, 1fr) 150px;
+    }
     .events-header-row {
       display: grid;
-      grid-template-columns: 74px 104px 160px 1fr 145px;
+      grid-template-columns: var(--ev-cols);
       gap: 10px;
       padding: 6px 14px;
       background: var(--bg-elevated);
       border-bottom: 1px solid var(--border-subtle);
-      font-size: 11px;
+      font-size: var(--fs-meta);
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.04em;
@@ -900,49 +1072,86 @@
       }
     }
     .events-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
       overflow-y: auto;
       flex: 1;
+      min-height: 0;
     }
-    .event-item {
+    .event-entry {
       border-bottom: 1px solid var(--border-subtle);
       background: var(--bg-surface);
       border-left: 3px solid transparent;
     }
-    .event-item.ev-deny {
+    .event-entry.ev-deny {
       border-left-color: var(--deny-solid);
     }
-    .event-item.ev-ask {
+    .event-entry.ev-ask {
       border-left-color: var(--ask-solid);
     }
-    .event-item.ev-allow {
+    .event-entry.ev-allow {
       border-left-color: var(--allow-solid);
     }
-    .event-item:hover {
+    .event-entry:hover {
       background: var(--bg-hover);
     }
     .event-summary {
       display: grid;
-      grid-template-columns: 74px 104px 160px 1fr 145px;
+      grid-template-columns: var(--ev-cols);
       gap: 10px;
-      padding: 8px 14px;
+      padding: 6px 14px 6px 11px;
       align-items: center;
       cursor: pointer;
-      width: 100%;
-      text-align: left;
-      background: transparent;
-      border: none;
     }
-    @media (max-width: 768px) {
-      .event-summary {
-        grid-template-columns: 1fr;
-        gap: 6px;
-      }
+    .event-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-self: start;
+      gap: 6px;
+      padding: 2px 8px 2px 6px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-control);
+      border-radius: 4px;
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      font-size: var(--fs-row);
+      white-space: nowrap;
+      cursor: pointer;
+      font-variant-numeric: tabular-nums;
+    }
+    .event-toggle:hover {
+      border-color: var(--border-focus);
+      color: var(--text-primary);
+    }
+    .event-toggle svg {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+      transition: transform 0.12s ease;
+    }
+    .event-toggle[aria-expanded="true"] svg {
+      transform: rotate(90deg);
     }
     .event-time {
       font-family: var(--font-mono);
-      font-size: 11.5px;
-      color: var(--text-secondary);
+      font-size: var(--fs-row);
       white-space: nowrap;
+    }
+    @media (max-width: 768px) {
+      .event-summary {
+        grid-template-columns: auto auto minmax(0, 1fr) auto;
+        grid-template-areas:
+          "tg dc tl tl"
+          "tr tr tr rl";
+        gap: 6px 8px;
+        padding: 8px 12px 8px 9px;
+      }
+      .event-toggle { grid-area: tg; }
+      .ev-dec { grid-area: dc; }
+      .ev-tool { grid-area: tl; min-width: 0; }
+      .event-target-cell { grid-area: tr; }
+      .event-rule-cell { grid-area: rl; }
     }
 
     /* Syntax-tinted Tool Pills */
@@ -950,7 +1159,7 @@
       display: inline-flex;
       align-items: center;
       font-family: var(--font-mono);
-      font-size: 11.5px;
+      font-size: var(--fs-meta);
       font-weight: 600;
       padding: 2px 7px;
       border-radius: 4px;
@@ -989,7 +1198,7 @@
     }
     .event-target {
       font-family: var(--font-mono);
-      font-size: 12px;
+      font-size: var(--fs-row);
       color: var(--text-primary);
       background: var(--bg-code);
       padding: 2px 7px;
@@ -1000,53 +1209,47 @@
       white-space: nowrap;
       max-width: 100%;
     }
-    .injection-flag {
+    .injection-flag, .redacted-flag {
       display: inline-flex;
       align-items: center;
       gap: 4px;
       font-family: var(--font-mono);
-      font-size: 10.5px;
+      font-size: var(--fs-meta);
       font-weight: 700;
+      text-transform: uppercase;
       padding: 2px 6px;
       border-radius: 4px;
-      background: var(--inj-bg);
-      border: 1px solid var(--inj-border);
-      color: var(--inj-fg);
       white-space: nowrap;
       flex-shrink: 0;
     }
+    .injection-flag {
+      background: var(--inj-bg);
+      border: 1px solid var(--inj-border);
+      color: var(--inj-fg);
+    }
     .redacted-flag {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      font-family: var(--font-mono);
-      font-size: 10.5px;
-      font-weight: 700;
-      padding: 2px 6px;
-      border-radius: 4px;
       background: var(--redact-bg);
       border: 1px solid var(--redact-border);
       color: var(--redact-fg);
-      white-space: nowrap;
-      flex-shrink: 0;
     }
     .event-rule-cell {
       display: flex;
       align-items: center;
       justify-content: flex-end;
       gap: 6px;
+      min-width: 0;
     }
     .rule-link-btn {
       font-family: var(--font-mono);
-      font-size: 11.5px;
+      font-size: var(--fs-meta);
       font-weight: 600;
       color: var(--accent-blue);
       background: var(--accent-blue-bg);
-      border: 1px solid var(--accent-blue-border);
+      border: 1px solid var(--border-control);
       padding: 2px 7px;
       border-radius: 4px;
       cursor: pointer;
-      max-width: 140px;
+      max-width: 100%;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -1062,9 +1265,9 @@
       padding: 10px 14px 12px 14px;
       background: var(--bg-code);
       border-top: 1px dashed var(--border-strong);
-      font-size: 12px;
+      font-size: var(--fs-meta);
     }
-    .event-item.open .event-expanded {
+    .event-entry.open .event-expanded {
       display: block;
     }
     .expanded-grid {
@@ -1073,17 +1276,19 @@
       gap: 8px;
       margin-bottom: 8px;
       font-family: var(--font-mono);
-      font-size: 11.5px;
+      font-size: var(--fs-meta);
     }
     .kv-box {
       background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
       padding: 6px 8px;
       border-radius: 4px;
+      min-width: 0;
     }
     .kv-label {
-      font-size: 10px;
+      font-size: var(--fs-meta);
       text-transform: uppercase;
+      letter-spacing: 0.04em;
       color: var(--text-secondary);
       display: block;
     }
@@ -1095,7 +1300,7 @@
       margin-top: 8px;
     }
     .detail-block-label {
-      font-size: 11px;
+      font-size: var(--fs-meta);
       font-weight: 600;
       color: var(--text-secondary);
       margin-bottom: 3px;
@@ -1108,7 +1313,7 @@
       border: 1px solid var(--border-subtle);
       border-radius: 4px;
       font-family: var(--font-mono);
-      font-size: 11.5px;
+      font-size: var(--fs-row);
       white-space: pre-wrap;
       word-break: break-all;
       color: var(--text-primary);
@@ -1121,11 +1326,13 @@
       border-radius: 4px;
       color: var(--text-primary);
       font-family: var(--font-mono);
-      font-size: 11.5px;
+      font-size: var(--fs-meta);
+      overflow-wrap: anywhere;
     }
 
     /* Empty / Designed State Card inside Feed */
     .empty-feed-state {
+      list-style: none;
       margin: 24px 16px;
       padding: 24px;
       background: var(--bg-surface);
@@ -1136,7 +1343,7 @@
       max-width: 620px;
     }
     .empty-feed-title {
-      font-size: 14px;
+      font-size: var(--fs-body);
       font-weight: 700;
       margin: 0 0 6px 0;
       font-family: var(--font-mono);
@@ -1145,7 +1352,7 @@
     .empty-feed-desc {
       margin: 0;
       color: var(--text-secondary);
-      font-size: 12.5px;
+      font-size: var(--fs-row);
     }
 
     /* Bottom Limits Panel */
@@ -1164,11 +1371,12 @@
       }
     }
     .limits-title {
+      margin: 0;
       font-family: var(--font-mono);
-      font-size: 11px;
+      font-size: var(--fs-meta);
       font-weight: 700;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.04em;
       color: var(--ask-fg);
       padding: 4px 9px;
       border: 1px solid var(--ask-border);
@@ -1187,10 +1395,11 @@
       }
     }
     .limit-card {
-      font-size: 12px;
+      font-size: var(--fs-row);
       color: var(--text-secondary);
       border-left: 3px solid var(--border-strong);
       padding-left: 10px;
+      min-width: 0;
     }
     .limit-card.limit-shell {
       border-left-color: var(--ask-solid);
@@ -1205,12 +1414,14 @@
       color: var(--text-primary);
       display: block;
       font-family: var(--font-mono);
-      font-size: 11.5px;
+      font-size: var(--fs-row);
       margin-bottom: 2px;
     }
   </style>
 </head>
 <body>
+
+  <a class="skip-link" href="#events-heading" id="skip-link">Skip to security events</a>
 
   <!-- Preview-only State Switcher (shown only when ?states=1 is in URL) -->
   <nav id="state-switcher" class="state-switcher" aria-label="Operational state switcher">
@@ -1228,17 +1439,17 @@
           <path d="M8 1.5L2.5 4v4.2c0 3.4 2.3 5.7 5.5 6.3 3.2-.6 5.5-2.9 5.5-6.3V4L8 1.5z"/>
         </svg>
       </span>
-      <span class="brand-title">agent-guardrails</span>
+      <h1 class="brand-title">agent-guardrails</h1>
       <span class="brand-subtitle">Claude Code Tool-Call Firewall</span>
     </div>
     <div class="header-meta">
       <span id="data-source-badge" class="data-source-pill sample">sample data</span>
       <span class="readonly-hint">Read-only console · Edit rules in <code>policy.json</code></span>
-      <button id="download-html-btn" type="button" class="download-btn" title="Download this standalone index.html file">
+      <button id="download-html-btn" type="button" class="download-btn" title="Download a clean copy of this page. It holds no log data.">
         <span>⬇ Download index.html</span>
       </button>
-      <button id="theme-toggle" type="button" class="theme-btn" aria-label="Switch color theme">
-        <span id="theme-label">Light theme</span>
+      <button id="theme-toggle" type="button" class="theme-btn">
+        <span id="theme-label">Switch to light theme</span>
       </button>
     </div>
   </header>
@@ -1251,11 +1462,12 @@
     </div>
   </section>
 
-  <!-- 1. Posture Strip (5 Tiles) -->
-  <section class="posture-strip" aria-label="Firewall posture">
+  <!-- Posture Strip (5 Tiles) -->
+  <section class="posture-strip" aria-labelledby="posture-heading">
+    <h2 id="posture-heading" class="sr-only">Firewall posture</h2>
     <div id="tile-plugin" class="posture-tile tone-ok">
       <div class="tile-label">
-        <span>1. Plugin</span>
+        <span>Plugin</span>
         <span id="dot-plugin" class="status-dot ok" aria-hidden="true"></span>
       </div>
       <div class="tile-value-row">
@@ -1266,7 +1478,7 @@
 
     <div id="tile-policy" class="posture-tile tone-ok">
       <div class="tile-label">
-        <span>2. Policy</span>
+        <span>Policy</span>
         <span id="dot-policy" class="status-dot ok" aria-hidden="true"></span>
       </div>
       <div class="tile-value-row">
@@ -1277,7 +1489,7 @@
 
     <div id="tile-isolation" class="posture-tile tone-neutral">
       <div class="tile-label">
-        <span>3. Isolation</span>
+        <span>Isolation</span>
         <span id="dot-isolation" class="status-dot neutral" aria-hidden="true"></span>
       </div>
       <div class="tile-value-row">
@@ -1288,22 +1500,22 @@
 
     <div id="tile-steps" class="posture-tile tone-ok">
       <div class="tile-label">
-        <span>4. Steps This Session</span>
+        <span>Steps this session</span>
         <span id="dot-steps" class="status-dot ok" aria-hidden="true"></span>
       </div>
       <div class="tile-value-row">
-        <span id="val-steps" class="tile-value">3 of 200</span>
+        <span id="val-steps" class="tile-value">0 of 200</span>
       </div>
       <div class="step-meter" aria-hidden="true">
         <div id="step-meter-fill" class="step-meter-fill" style="width: 2%;"></div>
       </div>
-      <div id="sub-steps" class="tile-sub">Session: hostile-test</div>
+      <div id="sub-steps" class="tile-sub">No active session</div>
     </div>
 
-    <div id="tile-last" class="posture-tile tone-ok">
+    <div id="tile-last" class="posture-tile tone-neutral">
       <div class="tile-label">
-        <span>5. Last Event</span>
-        <span id="dot-last" class="status-dot ok" aria-hidden="true"></span>
+        <span>Last event</span>
+        <span id="dot-last" class="status-dot neutral" aria-hidden="true"></span>
       </div>
       <div class="tile-value-row">
         <span id="val-last" class="tile-value">—</span>
@@ -1314,43 +1526,55 @@
 
   <!-- Main Workspace: Left 36% Rules, Right 64% Live Event Feed -->
   <main class="workspace">
-    <!-- 2. Left Column: Policy Rules -->
-    <section class="rules-pane" aria-label="Policy rules">
+    <div id="live-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+
+    <!-- Left Column: Policy Rules -->
+    <section class="rules-pane" aria-labelledby="rules-heading">
       <div class="pane-header">
-        <div class="pane-title">
-          <span>Policy Rules</span>
-          <span id="rules-count" class="count-pill">20</span>
-        </div>
+        <h2 id="rules-heading" class="pane-title">
+          <span id="rules-title-text" class="pane-title-text">
+            <span>Policy rules</span>
+            <span class="count-pill rules-count">20</span>
+          </span>
+          <button id="rules-toggle" type="button" class="pane-toggle" aria-controls="rules-body" hidden>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5.5 3l5 5-5 5"/></svg>
+            <span>Policy rules</span>
+            <span class="count-pill rules-count">20</span>
+          </button>
+        </h2>
         <span class="edit-file-hint">To change a rule, edit <code>policy.json</code></span>
       </div>
-      <div id="rules-list" class="rules-list" role="list"></div>
+      <div id="rules-body" class="rules-body">
+        <ul id="rules-list" class="rules-list"></ul>
+      </div>
     </section>
 
-    <!-- 3. Right Column: Live Security Events Feed -->
-    <section class="events-pane" aria-label="Live tool call events">
+    <!-- Right Column: Live Security Events Feed -->
+    <section class="events-pane" aria-labelledby="events-heading">
       <div class="pane-header">
-        <div class="pane-title">
-          <span>Security Events (Newest First)</span>
+        <h2 id="events-heading" class="pane-title" tabindex="-1">
+          <span>Security events (newest first)</span>
           <span id="events-count" class="count-pill">0</span>
-        </div>
+        </h2>
         <div id="active-rule-indicator"></div>
       </div>
 
       <!-- WAF Telemetry Distribution Strip -->
-      <div class="telemetry-strip" aria-label="Event decision breakdown">
-        <div id="telemetry-pills" class="telemetry-pills"></div>
+      <div class="telemetry-strip">
+        <div id="telemetry-pills" class="telemetry-pills" role="group" aria-label="Quick filters"></div>
+        <p class="telemetry-legend">Deny blocks · Ask needs a human yes · Allow passed</p>
         <div id="distribution-bar" class="distribution-bar" aria-hidden="true"></div>
       </div>
 
       <!-- Filter Bar -->
-      <div class="filter-bar" role="region" aria-label="Event filters">
+      <div class="filter-bar" role="group" aria-label="Event filters">
         <div class="filter-group">
           <label class="filter-label" for="filter-decision">Decision:</label>
           <select id="filter-decision" class="filter-select">
             <option value="all">All decisions</option>
-            <option value="deny">deny (Block)</option>
-            <option value="ask">ask (Challenge)</option>
-            <option value="allow">allow (Allow)</option>
+            <option value="deny">Deny</option>
+            <option value="ask">Ask</option>
+            <option value="allow">Allow</option>
           </select>
         </div>
 
@@ -1375,6 +1599,15 @@
           </select>
         </div>
 
+        <div class="filter-group">
+          <label class="filter-label" for="filter-signal">Signal:</label>
+          <select id="filter-signal" class="filter-select">
+            <option value="all">All signals</option>
+            <option value="injection">Injection warnings</option>
+            <option value="redacted">Key redacted</option>
+          </select>
+        </div>
+
         <button id="clear-filters" type="button" class="clear-filters-btn">Reset filters</button>
       </div>
 
@@ -1386,13 +1619,13 @@
         <span style="text-align:right;">Rule</span>
       </div>
 
-      <div id="events-list" class="events-list" role="list"></div>
+      <ul id="events-list" class="events-list"></ul>
     </section>
   </main>
 
-  <!-- 5. Limits Panel -->
-  <footer class="limits-footer" aria-label="Guardrail limits">
-    <div class="limits-title">Known Limits</div>
+  <!-- Limits Panel -->
+  <footer class="limits-footer" aria-labelledby="limits-heading">
+    <h2 id="limits-heading" class="limits-title">Known limits</h2>
     <div class="limits-items">
       <div class="limit-card limit-shell">
         <strong>Shell commands are asked, never denied</strong>
@@ -1412,6 +1645,14 @@
   <script>
     (function () {
       "use strict";
+
+      /* A clean copy of this page, taken before any log data is rendered. Download exports this,
+         never the live page. The theme attribute is dropped so the saved file follows its viewer. */
+      var PRISTINE = (function () {
+        var clone = document.documentElement.cloneNode(true);
+        clone.removeAttribute("data-theme");
+        return "<!DOCTYPE html>\n" + clone.outerHTML;
+      })();
 
       /* =====================================================================
          1. REAL SHIPPED POLICY DATA & AUDIT LOG SAMPLE
@@ -1814,6 +2055,7 @@
         }
       ];
 
+
       /* =====================================================================
          3. APPLICATION STATE
          ===================================================================== */
@@ -1828,11 +2070,16 @@
           decision: "all",
           rule: "all",
           tool: "all",
-          session: "all"
+          session: "all",
+          signal: "all"
         },
         expandedEventIds: {},
         lastTimestamp: null,
-        pollTimer: null
+        statusSig: "",
+        rulesSig: null,
+        rulesCollapsed: true,
+        pollTimer: null,
+        clockTimer: null
       };
 
       function cloneObj(o) {
@@ -1840,7 +2087,7 @@
       }
 
       /* =====================================================================
-         4. SAFE DOM HELPERS (Zero innerHTML for untrusted log/policy strings)
+         4. SAFE DOM HELPERS (Log and policy strings only ever go in as text)
          ===================================================================== */
       function clearNode(node) {
         while (node.firstChild) {
@@ -1857,32 +2104,42 @@
         return node;
       }
 
-      function createDecisionIcon(decision) {
+      function createSvg(pathD, strokeWidth) {
         var svgNS = "http://www.w3.org/2000/svg";
         var svg = document.createElementNS(svgNS, "svg");
         svg.setAttribute("viewBox", "0 0 16 16");
         svg.setAttribute("fill", "none");
         svg.setAttribute("stroke", "currentColor");
-        svg.setAttribute("stroke-width", "1.8");
+        svg.setAttribute("stroke-width", strokeWidth || "1.8");
         svg.setAttribute("aria-hidden", "true");
-
         var path = document.createElementNS(svgNS, "path");
-        if (decision === "deny") {
-          path.setAttribute("d", "M8 1.8a6.2 6.2 0 1 0 0 12.4A6.2 6.2 0 0 0 8 1.8zm-4.3 4.3l8.6 8.6");
-        } else if (decision === "ask") {
-          path.setAttribute("d", "M5.5 8V3.5a1 1 0 0 1 2 0V7m0-4a1 1 0 0 1 2 0v4m0-3a1 1 0 0 1 2 0v5.5a4.5 4.5 0 0 1-9 0V7.5a1 1 0 0 1 2 0V9");
-        } else {
-          path.setAttribute("d", "M2.8 8.5l3.4 3.4L13.4 4.7");
-        }
+        path.setAttribute("d", pathD);
         svg.appendChild(path);
         return svg;
+      }
+
+      function createDecisionIcon(decision) {
+        var d;
+        if (decision === "deny") {
+          d = "M8 1.8a6.2 6.2 0 1 0 0 12.4A6.2 6.2 0 0 0 8 1.8zm-4.3 4.3l8.6 8.6";
+        } else if (decision === "ask") {
+          d = "M5.5 8V3.5a1 1 0 0 1 2 0V7m0-4a1 1 0 0 1 2 0v4m0-3a1 1 0 0 1 2 0v5.5a4.5 4.5 0 0 1-9 0V7.5a1 1 0 0 1 2 0V9";
+        } else {
+          d = "M2.8 8.5l3.4 3.4L13.4 4.7";
+        }
+        return createSvg(d, "1.8");
+      }
+
+      function decisionWord(decision) {
+        var norm = (decision === "deny" || decision === "ask" || decision === "allow") ? decision : "ask";
+        return norm.charAt(0).toUpperCase() + norm.slice(1);
       }
 
       function createDecisionBadge(decision) {
         var norm = (decision === "deny" || decision === "ask" || decision === "allow") ? decision : "ask";
         var badge = el("span", "decision-badge " + norm);
         badge.appendChild(createDecisionIcon(norm));
-        badge.appendChild(el("span", null, norm));
+        badge.appendChild(el("span", null, decisionWord(norm)));
         return badge;
       }
 
@@ -1893,6 +2150,31 @@
         if (name === "WebFetch" || name === "WebSearch") return "event-tool-pill tool-web";
         if (name.indexOf("mcp__") === 0) return "event-tool-pill tool-mcp";
         return "event-tool-pill tool-web";
+      }
+
+      /* Every event gets a stable key from what it is, never from where it sits in the list.
+         Two lines with the same id and time get a counter, so each key stays unique. */
+      function assignEventKeys(events) {
+        var seen = {};
+        for (var i = 0; i < events.length; i++) {
+          var base = (events[i].tool_use_id || "ev") + "|" + (events[i].ts || "");
+          var n = seen[base] || 0;
+          seen[base] = n + 1;
+          events[i].__key = n === 0 ? base : base + "#" + n;
+        }
+      }
+
+      /* An id-safe form of a key. Each other character becomes _<hex>_, so two keys never collide. */
+      function safeKey(key) {
+        return String(key).replace(/[^A-Za-z0-9\-]/g, function (c) {
+          return "_" + c.charCodeAt(0).toString(16) + "_";
+        });
+      }
+
+      function announce(msg) {
+        var region = document.getElementById("live-status");
+        region.textContent = "";
+        setTimeout(function () { region.textContent = msg; }, 80);
       }
 
       /* =====================================================================
@@ -1964,6 +2246,10 @@
         return out;
       }
 
+      function isRedacted(ev) {
+        return extractEventTarget(ev).indexOf("[REDACTED:") !== -1;
+      }
+
       /* =====================================================================
          6. RENDERING: POSTURE STRIP & STATE BANNER
          ===================================================================== */
@@ -2008,7 +2294,7 @@
           bannerDesc.textContent = "";
         }
 
-        // Tile 1: Plugin
+        // Tile: Plugin
         var tilePlugin = document.getElementById("tile-plugin");
         var dotPlugin = document.getElementById("dot-plugin");
         var valPlugin = document.getElementById("val-plugin");
@@ -2025,7 +2311,7 @@
           subPlugin.textContent = "No hooks registered in Claude Code";
         }
 
-        // Tile 2: Policy
+        // Tile: Policy
         var tilePolicy = document.getElementById("tile-policy");
         var dotPolicy = document.getElementById("dot-policy");
         var valPolicy = document.getElementById("val-policy");
@@ -2042,10 +2328,10 @@
           tilePolicy.className = "posture-tile tone-ok";
           dotPolicy.className = "status-dot ok";
           valPolicy.textContent = "Loaded (" + rulesArr.length + " rules)";
-          subPolicy.textContent = denyCount + " deny · " + askCount + " ask (v" + (state.policy.version || 1) + ")";
+          subPolicy.textContent = denyCount + " Deny · " + askCount + " Ask (v" + ((state.policy && state.policy.version) || 1) + ")";
         }
 
-        // Tile 3: Isolation
+        // Tile: Isolation
         var tileIso = document.getElementById("tile-isolation");
         var dotIso = document.getElementById("dot-isolation");
         var valIso = document.getElementById("val-isolation");
@@ -2066,10 +2352,10 @@
           tileIso.className = "posture-tile tone-neutral";
           dotIso.className = "status-dot neutral";
           valIso.textContent = "Off";
-          subIso.textContent = "Shell secret reads gated by ask rules";
+          subIso.textContent = "Shell secret reads gated by Ask rules";
         }
 
-        // Tile 4: Steps this session vs cap
+        // Tile: Steps this session vs cap
         var tileSteps = document.getElementById("tile-steps");
         var dotSteps = document.getElementById("dot-steps");
         var valSteps = document.getElementById("val-steps");
@@ -2123,7 +2409,8 @@
           }
         }
 
-        // Tile 5: Last Event
+        // Tile: Last event. Health colors are for system health; a decision never paints the tile.
+        // A deny is the firewall doing its job. Only an injection warning raises the tile to a warning.
         var tileLast = document.getElementById("tile-last");
         var dotLast = document.getElementById("dot-last");
         var valLast = document.getElementById("val-last");
@@ -2136,134 +2423,219 @@
           subLast.textContent = state.status.log_found ? "Log empty" : "No audit log yet";
         } else {
           var rel = formatRelativeTime(newestEvent.ts);
+          var lastWarnings = extractWarnings(newestEvent);
           valLast.appendChild(el("span", null, rel));
           valLast.appendChild(createDecisionBadge(newestEvent.decision));
-          valLast.title = newestEvent.ts;
-          if (newestEvent.decision === "deny") {
-            tileLast.className = "posture-tile tone-err";
-            dotLast.className = "status-dot err";
-          } else if (newestEvent.decision === "ask") {
+          if (lastWarnings.length > 0) {
+            var lastFlag = el("span", "injection-flag");
+            lastFlag.appendChild(el("span", null, "⚠")).setAttribute("aria-hidden", "true");
+            lastFlag.appendChild(el("span", null, "Injection"));
+            valLast.appendChild(lastFlag);
             tileLast.className = "posture-tile tone-warn";
             dotLast.className = "status-dot warn";
           } else {
-            tileLast.className = "posture-tile tone-ok";
-            dotLast.className = "status-dot ok";
+            tileLast.className = "posture-tile tone-neutral";
+            dotLast.className = "status-dot neutral";
           }
-          subLast.textContent = newestEvent.tool_name + " → " + extractEventTarget(newestEvent);
+          valLast.title = newestEvent.ts || "";
+          subLast.textContent = newestEvent.tool_name + " → " + extractEventTarget(newestEvent) +
+            (lastWarnings.length > 0 ? " · Injection warning" + (lastWarnings.length > 1 ? "s" : "") + ": " + lastWarnings.length : "");
         }
       }
 
       /* =====================================================================
          7. RENDERING: LEFT PANE (POLICY RULES)
+         The list is built once per policy. A render only updates hit counts and the selected rule,
+         so focus and scroll position are never lost.
          ===================================================================== */
+      var ruleNodes = {};
+
+      function setRulesCount(n) {
+        var pills = document.querySelectorAll(".rules-count");
+        for (var i = 0; i < pills.length; i++) pills[i].textContent = String(n);
+      }
+
+      function toggleRuleFilter(ruleId) {
+        state.filters.rule = state.filters.rule === ruleId ? "all" : ruleId;
+        syncFilterControls();
+        renderAll();
+        if (state.filters.rule !== "all") {
+          announce("Filtered by rule " + ruleId + ": " + document.getElementById("events-count").textContent + " events");
+        }
+      }
+
+      function buildRuleItem(rule) {
+        var isDenyLike = rule.decision === "deny";
+        var li = el("li", "rule-item " + (isDenyLike ? "rule-deny" : "rule-ask"));
+
+        var top = el("div", "rule-top");
+        var btn = el("button", "rule-row");
+        btn.type = "button";
+        btn.setAttribute("data-rule-id", rule.id);
+        btn.setAttribute("data-focus-id", "rule:" + rule.id);
+        btn.setAttribute("aria-pressed", "false");
+        // The name starts with the visible words (badge, then rule id), so it also satisfies label-in-name.
+        btn.setAttribute("aria-label", decisionWord(rule.decision) + " " + rule.id + ". Filter events by this rule");
+        btn.appendChild(createDecisionBadge(rule.decision));
+        btn.appendChild(document.createTextNode(" "));
+        btn.appendChild(el("span", "rule-id", rule.id));
+        top.appendChild(btn);
+
+        top.appendChild(el("span", "kind-badge kind-" + (rule.kind || "tool"), rule.kind));
+        if (!SHIPPED_RULE_IDS[rule.id]) {
+          top.appendChild(el("span", "origin-badge", "user-added"));
+        }
+        if (rule.decision === "deny" && (rule.kind === "path" || rule.kind === "command")) {
+          var shellBadge = el("span", "shell-note-badge", "asks on shell");
+          shellBadge.title = "On shell tools (Bash, PowerShell, Monitor), this Deny rule acts as Ask because shell text can be respelled.";
+          top.appendChild(shellBadge);
+        }
+        var hitSpan = el("span", "rule-hit-count", "0 hits");
+        top.appendChild(hitSpan);
+        li.appendChild(top);
+
+        var reason = el("div", "rule-reason", rule.reason);
+        reason.title = rule.reason || "";
+        li.appendChild(reason);
+
+        var details = el("div", "rule-details");
+        if (rule.decision === "deny" && (rule.kind === "path" || rule.kind === "command")) {
+          details.appendChild(el("div", null, "Shell behavior: Acts as Ask on Bash / PowerShell / Monitor."));
+        }
+        if (rule.project_relative) {
+          details.appendChild(el("div", null, "Scope: project_relative = true"));
+        }
+        if (Array.isArray(rule.match) && rule.match.length > 0) {
+          details.appendChild(el("div", null, "match (" + rule.match.length + "):"));
+          var matchUl = el("ul", "rule-pattern-list");
+          for (var m = 0; m < rule.match.length; m++) {
+            matchUl.appendChild(el("li", null, rule.match[m]));
+          }
+          details.appendChild(matchUl);
+        }
+        if (Array.isArray(rule.except) && rule.except.length > 0) {
+          details.appendChild(el("div", null, "except (" + rule.except.length + "):"));
+          var exceptUl = el("ul", "rule-pattern-list");
+          for (var ex = 0; ex < rule.except.length; ex++) {
+            exceptUl.appendChild(el("li", null, rule.except[ex]));
+          }
+          details.appendChild(exceptUl);
+        }
+        li.appendChild(details);
+
+        // One handler for the whole row: the button's own click bubbles here. Selecting text to copy a
+        // pattern must not flip the filter.
+        li.addEventListener("click", function (e) {
+          var sel = window.getSelection ? String(window.getSelection()) : "";
+          if (sel && !e.target.closest("button")) return;
+          toggleRuleFilter(rule.id);
+        });
+
+        ruleNodes[rule.id] = { li: li, btn: btn, hits: hitSpan };
+        return li;
+      }
+
       function renderRules() {
         var listEl = document.getElementById("rules-list");
-        var countEl = document.getElementById("rules-count");
-        clearNode(listEl);
-
         var rules = (state.policy && Array.isArray(state.policy.rules)) ? state.policy.rules : [];
-        countEl.textContent = String(rules.length);
+        setRulesCount(rules.length);
+
+        var sig = rules.length === 0 ? "empty|" + (state.status.policy_error || "") : JSON.stringify(rules);
+        if (sig !== state.rulesSig) {
+          state.rulesSig = sig;
+          ruleNodes = {};
+          clearNode(listEl);
+          if (rules.length === 0) {
+            var emptyMsg = el("li", "empty-feed-state");
+            emptyMsg.appendChild(el("div", "empty-feed-title", "No Policy Rules Loaded"));
+            emptyMsg.appendChild(el("div", "empty-feed-desc", state.status.policy_error || "policy.json could not be parsed. Fail-closed mode is active: every tool call asks for confirmation."));
+            listEl.appendChild(emptyMsg);
+          }
+          for (var j = 0; j < rules.length; j++) {
+            listEl.appendChild(buildRuleItem(rules[j]));
+          }
+        }
 
         var ruleCounts = {};
         for (var i = 0; i < state.events.length; i++) {
           var rId = normalizeRuleId(state.events[i]);
           ruleCounts[rId] = (ruleCounts[rId] || 0) + 1;
         }
-
-        if (rules.length === 0) {
-          var emptyMsg = el("div", "empty-feed-state");
-          emptyMsg.appendChild(el("div", "empty-feed-title", "No Policy Rules Loaded"));
-          emptyMsg.appendChild(el("div", "empty-feed-desc", state.status.policy_error || "policy.json could not be parsed. Fail-closed mode is active: every tool call asks for confirmation."));
-          listEl.appendChild(emptyMsg);
-          return;
-        }
-
-        for (var j = 0; j < rules.length; j++) {
-          var rule = rules[j];
-          var isSelected = (state.filters.rule === rule.id);
-          var rowTone = rule.decision === "deny" ? " rule-deny" : " rule-ask";
-          var rowBtn = el("button", "rule-row" + rowTone + (isSelected ? " active" : ""));
-          rowBtn.type = "button";
-          rowBtn.setAttribute("data-rule-id", rule.id);
-          rowBtn.setAttribute("aria-pressed", isSelected ? "true" : "false");
-
-          var top = el("div", "rule-top");
-          var leftGroup = el("div", "rule-id-group");
-          leftGroup.appendChild(createDecisionBadge(rule.decision));
-          leftGroup.appendChild(el("span", "rule-id", rule.id));
-
-          var kindClass = "kind-badge kind-" + (rule.kind || "tool");
-          leftGroup.appendChild(el("span", kindClass, rule.kind));
-
-          var originText = SHIPPED_RULE_IDS[rule.id] ? "shipped" : "user-added";
-          leftGroup.appendChild(el("span", "origin-badge", originText));
-
-          if (rule.decision === "deny" && (rule.kind === "path" || rule.kind === "command")) {
-            var shellBadge = el("span", "shell-note-badge", "asks on shell");
-            shellBadge.title = "On shell tools (Bash, PowerShell, Monitor), this deny rule acts as ask because shell text can be respelled.";
-            leftGroup.appendChild(shellBadge);
-          }
-
-          top.appendChild(leftGroup);
-
-          var hits = ruleCounts[rule.id] || 0;
-          var hitSpan = el("span", "rule-hit-count" + (hits > 0 ? " has-hits" : ""), hits + (hits === 1 ? " hit" : " hits"));
-          top.appendChild(hitSpan);
-          rowBtn.appendChild(top);
-
-          rowBtn.appendChild(el("div", "rule-reason", rule.reason));
-
-          var details = el("div", "rule-details");
-          if (rule.decision === "deny" && (rule.kind === "path" || rule.kind === "command")) {
-            details.appendChild(el("div", null, "Shell behavior: Acts as ASK on Bash / PowerShell / Monitor."));
-          }
-          if (rule.project_relative) {
-            details.appendChild(el("div", null, "Scope: project_relative = true"));
-          }
-          if (Array.isArray(rule.match) && rule.match.length > 0) {
-            details.appendChild(el("div", null, "match (" + rule.match.length + "):"));
-            var matchUl = el("ul", "rule-pattern-list");
-            for (var m = 0; m < rule.match.length; m++) {
-              matchUl.appendChild(el("li", null, rule.match[m]));
-            }
-            details.appendChild(matchUl);
-          }
-          if (Array.isArray(rule.except) && rule.except.length > 0) {
-            details.appendChild(el("div", null, "except (" + rule.except.length + "):"));
-            var exceptUl = el("ul", "rule-pattern-list");
-            for (var ex = 0; ex < rule.except.length; ex++) {
-              exceptUl.appendChild(el("li", null, rule.except[ex]));
-            }
-            details.appendChild(exceptUl);
-          }
-
-          rowBtn.appendChild(details);
-
-          (function (ruleId) {
-            rowBtn.addEventListener("click", function () {
-              if (state.filters.rule === ruleId) {
-                state.filters.rule = "all";
-              } else {
-                state.filters.rule = ruleId;
-              }
-              syncFilterControls();
-              renderAll();
-            });
-          })(rule.id);
-
-          listEl.appendChild(rowBtn);
+        for (var k = 0; k < rules.length; k++) {
+          var node = ruleNodes[rules[k].id];
+          if (!node) continue;
+          var hits = ruleCounts[rules[k].id] || 0;
+          var hitText = hits + (hits === 1 ? " hit" : " hits");
+          if (node.hits.textContent !== hitText) node.hits.textContent = hitText;
+          node.hits.className = "rule-hit-count" + (hits > 0 ? " has-hits" : "");
+          var isSelected = state.filters.rule === rules[k].id;
+          node.li.classList.toggle("active", isSelected);
+          node.btn.setAttribute("aria-pressed", isSelected ? "true" : "false");
         }
       }
 
       /* =====================================================================
          8. RENDERING: FILTER SELECT OPTIONS & TELEMETRY BAR
          ===================================================================== */
-      function renderTelemetryStrip() {
+      var pillNodes = null;
+
+      function setDecisionFilter(decision) {
+        state.filters.decision = state.filters.decision === decision ? "all" : decision;
+        syncFilterControls();
+        renderAll();
+      }
+
+      function buildPill(cls, focusId, title, onClick) {
+        var pill = el("button", "telemetry-pill " + cls);
+        pill.type = "button";
+        pill.title = title;
+        pill.setAttribute("data-focus-id", focusId);
+        pill.setAttribute("aria-pressed", "false");
+        var label = el("span");
+        var count = el("span");
+        pill.appendChild(label);
+        pill.appendChild(count);
+        pill.addEventListener("click", onClick);
+        return { btn: pill, label: label, count: count };
+      }
+
+      function ensureTelemetry() {
+        if (pillNodes) return;
         var pillsEl = document.getElementById("telemetry-pills");
         var barEl = document.getElementById("distribution-bar");
-        clearNode(pillsEl);
-        clearNode(barEl);
+        pillNodes = {
+          deny: buildPill("deny-pill", "pill:deny", "Deny blocks the call. Select to show only denied events.", function () { setDecisionFilter("deny"); }),
+          ask: buildPill("ask-pill", "pill:ask", "Ask needs a human yes. Select to show only events that asked.", function () { setDecisionFilter("ask"); }),
+          allow: buildPill("allow-pill", "pill:allow", "Allow passed the call. Select to show only allowed events.", function () { setDecisionFilter("allow"); }),
+          inj: buildPill("inj-pill", "pill:inj", "Events whose tool output matched a prompt-injection marker. Select to show only those.", function () {
+            state.filters.signal = state.filters.signal === "injection" ? "all" : "injection";
+            syncFilterControls();
+            renderAll();
+          }),
+          segs: {
+            deny: el("div", "dist-seg-deny"),
+            ask: el("div", "dist-seg-ask"),
+            allow: el("div", "dist-seg-allow")
+          }
+        };
+        pillNodes.deny.label.textContent = "Deny:";
+        pillNodes.ask.label.textContent = "Ask:";
+        pillNodes.allow.label.textContent = "Allow:";
+        var warnIcon = el("span", null, "⚠");
+        warnIcon.setAttribute("aria-hidden", "true");
+        pillNodes.inj.btn.insertBefore(warnIcon, pillNodes.inj.label);
+        pillNodes.inj.label.textContent = "Injection:";
+        pillsEl.appendChild(pillNodes.deny.btn);
+        pillsEl.appendChild(pillNodes.ask.btn);
+        pillsEl.appendChild(pillNodes.allow.btn);
+        pillsEl.appendChild(pillNodes.inj.btn);
+        barEl.appendChild(pillNodes.segs.deny);
+        barEl.appendChild(pillNodes.segs.ask);
+        barEl.appendChild(pillNodes.segs.allow);
+      }
 
+      function renderTelemetryStrip() {
+        ensureTelemetry();
         var denyCnt = 0;
         var askCnt = 0;
         var allowCnt = 0;
@@ -2278,56 +2650,23 @@
         }
 
         var total = Math.max(1, denyCnt + askCnt + allowCnt);
+        var hasEvents = state.events.length > 0;
 
-        var denyBtn = el("button", "telemetry-pill deny-pill", "DENY (Block): " + denyCnt);
-        denyBtn.type = "button";
-        denyBtn.addEventListener("click", function () {
-          state.filters.decision = state.filters.decision === "deny" ? "all" : "deny";
-          syncFilterControls();
-          renderAll();
-        });
+        pillNodes.deny.count.textContent = String(denyCnt);
+        pillNodes.ask.count.textContent = String(askCnt);
+        pillNodes.allow.count.textContent = String(allowCnt);
+        pillNodes.inj.count.textContent = String(injCnt);
+        pillNodes.deny.btn.setAttribute("aria-pressed", state.filters.decision === "deny" ? "true" : "false");
+        pillNodes.ask.btn.setAttribute("aria-pressed", state.filters.decision === "ask" ? "true" : "false");
+        pillNodes.allow.btn.setAttribute("aria-pressed", state.filters.decision === "allow" ? "true" : "false");
+        pillNodes.inj.btn.setAttribute("aria-pressed", state.filters.signal === "injection" ? "true" : "false");
 
-        var askBtn = el("button", "telemetry-pill ask-pill", "ASK (Challenge): " + askCnt);
-        askBtn.type = "button";
-        askBtn.addEventListener("click", function () {
-          state.filters.decision = state.filters.decision === "ask" ? "all" : "ask";
-          syncFilterControls();
-          renderAll();
-        });
-
-        var allowBtn = el("button", "telemetry-pill allow-pill", "ALLOW: " + allowCnt);
-        allowBtn.type = "button";
-        allowBtn.addEventListener("click", function () {
-          state.filters.decision = state.filters.decision === "allow" ? "all" : "allow";
-          syncFilterControls();
-          renderAll();
-        });
-
-        var injBadge = el("span", "telemetry-pill inj-pill", "⚠ Injection Warnings: " + injCnt);
-
-        pillsEl.appendChild(denyBtn);
-        pillsEl.appendChild(askBtn);
-        pillsEl.appendChild(allowBtn);
-        pillsEl.appendChild(injBadge);
-
-        if (state.events.length > 0) {
-          var sDeny = el("div", "dist-seg-deny");
-          sDeny.style.width = ((denyCnt / total) * 100) + "%";
-          var sAsk = el("div", "dist-seg-ask");
-          sAsk.style.width = ((askCnt / total) * 100) + "%";
-          var sAllow = el("div", "dist-seg-allow");
-          sAllow.style.width = ((allowCnt / total) * 100) + "%";
-          barEl.appendChild(sDeny);
-          barEl.appendChild(sAsk);
-          barEl.appendChild(sAllow);
-        }
+        pillNodes.segs.deny.style.width = hasEvents ? ((denyCnt / total) * 100) + "%" : "0";
+        pillNodes.segs.ask.style.width = hasEvents ? ((askCnt / total) * 100) + "%" : "0";
+        pillNodes.segs.allow.style.width = hasEvents ? ((allowCnt / total) * 100) + "%" : "0";
       }
 
       function populateDynamicFilters() {
-        var ruleSelect = document.getElementById("filter-rule");
-        var toolSelect = document.getElementById("filter-tool");
-        var sessionSelect = document.getElementById("filter-session");
-
         var rulesSet = {};
         var toolsSet = {};
         var sessionsSet = {};
@@ -2343,26 +2682,36 @@
           if (ev.session_id) sessionsSet[ev.session_id] = true;
         }
 
-        rebuildSelect(ruleSelect, "All rules", Object.keys(rulesSet), state.filters.rule);
-        rebuildSelect(toolSelect, "All tools", Object.keys(toolsSet).sort(), state.filters.tool);
-        rebuildSelect(sessionSelect, "All sessions", Object.keys(sessionsSet), state.filters.session);
+        syncSelectOptions(document.getElementById("filter-rule"), "All rules", Object.keys(rulesSet), state.filters.rule);
+        syncSelectOptions(document.getElementById("filter-tool"), "All tools", Object.keys(toolsSet).sort(), state.filters.tool);
+        syncSelectOptions(document.getElementById("filter-session"), "All sessions", Object.keys(sessionsSet), state.filters.session);
       }
 
-      function rebuildSelect(selectEl, allLabel, items, selectedVal) {
+      function appendOption(selectEl, value, label) {
+        var opt = el("option", null, label);
+        opt.value = value;
+        selectEl.appendChild(opt);
+      }
+
+      /* Rebuilds the options only when the set changed. A select the person has focused is never
+         rebuilt (that would close it); new options are appended instead. */
+      function syncSelectOptions(selectEl, allLabel, items, selectedVal) {
+        var sig = items.join("\u0000");
+        if (selectEl._sig === sig) return;
+        if (document.activeElement === selectEl && selectEl._sig !== undefined) {
+          var have = {};
+          for (var o = 0; o < selectEl.options.length; o++) have[selectEl.options[o].value] = true;
+          for (var n = 0; n < items.length; n++) {
+            if (!have[items[n]]) appendOption(selectEl, items[n], items[n]);
+          }
+          selectEl._sig = sig;
+          return;
+        }
+        selectEl._sig = sig;
         clearNode(selectEl);
-        var allOpt = el("option", null, allLabel);
-        allOpt.value = "all";
-        selectEl.appendChild(allOpt);
-        for (var i = 0; i < items.length; i++) {
-          var opt = el("option", null, items[i]);
-          opt.value = items[i];
-          selectEl.appendChild(opt);
-        }
-        if (selectedVal && (selectedVal === "all" || items.indexOf(selectedVal) !== -1)) {
-          selectEl.value = selectedVal;
-        } else {
-          selectEl.value = "all";
-        }
+        appendOption(selectEl, "all", allLabel);
+        for (var i = 0; i < items.length; i++) appendOption(selectEl, items[i], items[i]);
+        selectEl.value = (selectedVal && (selectedVal === "all" || items.indexOf(selectedVal) !== -1)) ? selectedVal : "all";
       }
 
       function syncFilterControls() {
@@ -2370,8 +2719,11 @@
         document.getElementById("filter-rule").value = state.filters.rule;
         document.getElementById("filter-tool").value = state.filters.tool;
         document.getElementById("filter-session").value = state.filters.session;
+        document.getElementById("filter-signal").value = state.filters.signal;
 
         var chipContainer = document.getElementById("active-rule-indicator");
+        if (chipContainer._rule === state.filters.rule) return;
+        chipContainer._rule = state.filters.rule;
         clearNode(chipContainer);
         if (state.filters.rule !== "all") {
           var chip = el("span", "active-rule-chip");
@@ -2392,11 +2744,169 @@
 
       /* =====================================================================
          9. RENDERING: RIGHT PANE (LIVE SECURITY EVENTS FEED)
+         Rows are kept between renders and matched by key. A new event adds one row at the top; every
+         other row, its open drawer and any focus inside it stay as they are.
          ===================================================================== */
+      var rowCache = {};
+      var emptyCard = null;
+
+      function rowLabel(ev) {
+        var target = extractEventTarget(ev);
+        if (target.length > 120) target = target.slice(0, 120) + "…";
+        return formatRelativeTime(ev.ts) + ", " + decisionWord(ev.decision) + ", " + (ev.tool_name || "unknown") + ", " + target;
+      }
+
+      function applyOpenState(row) {
+        var open = Boolean(state.expandedEventIds[row.key]);
+        row.li.classList.toggle("open", open);
+        row.toggle.setAttribute("aria-expanded", open ? "true" : "false");
+      }
+
+      function buildEventRow(ev) {
+        var key = ev.__key;
+        var drawerId = "drawer-" + safeKey(key);
+        var evTone = (ev.decision === "deny" || ev.decision === "ask" || ev.decision === "allow") ? " ev-" + ev.decision : " ev-ask";
+        var li = el("li", "event-entry" + evTone);
+        li.setAttribute("data-key", key);
+
+        var summaryRow = el("div", "event-summary");
+
+        // Cell 1: the one real button of the row. Its name reads the whole row.
+        var toggle = el("button", "event-toggle");
+        toggle.type = "button";
+        toggle.setAttribute("data-focus-id", "toggle:" + key);
+        toggle.setAttribute("aria-controls", drawerId);
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.appendChild(createSvg("M5.5 3l5 5-5 5", "2"));
+        var timeCell = el("span", "event-time", formatRelativeTime(ev.ts));
+        timeCell.title = ev.ts || "";
+        toggle.appendChild(timeCell);
+        summaryRow.appendChild(toggle);
+
+        // Cell 2: Decision badge
+        var decCell = el("div", "ev-dec");
+        decCell.appendChild(createDecisionBadge(ev.decision));
+        summaryRow.appendChild(decCell);
+
+        // Cell 3: Tool pill
+        var toolWrap = el("div", "ev-tool");
+        var toolPill = el("span", getToolPillClass(ev.tool_name), ev.tool_name || "unknown");
+        toolPill.title = ev.tool_name || "";
+        toolWrap.appendChild(toolPill);
+        summaryRow.appendChild(toolWrap);
+
+        // Cell 4: Target in monospace + redacted / injection badges
+        var targetCell = el("div", "event-target-cell");
+        var targetStr = extractEventTarget(ev);
+        var targetSpan = el("span", "event-target", targetStr);
+        targetSpan.title = targetStr;
+        targetCell.appendChild(targetSpan);
+
+        if (isRedacted(ev)) {
+          var redactFlag = el("span", "redacted-flag", "Key redacted");
+          redactFlag.title = "Secret key automatically redacted before writing to audit log";
+          targetCell.appendChild(redactFlag);
+        }
+
+        var warnings = extractWarnings(ev);
+        if (warnings.length > 0) {
+          var warnFlag = el("span", "injection-flag");
+          var warnIcon = el("span", null, "⚠");
+          warnIcon.setAttribute("aria-hidden", "true");
+          warnFlag.appendChild(warnIcon);
+          warnFlag.appendChild(el("span", null, "Injection (" + warnings.length + ")"));
+          warnFlag.title = "Untrusted tool output matched prompt injection marker(s). Logged, not blocked.";
+          targetCell.appendChild(warnFlag);
+        }
+        summaryRow.appendChild(targetCell);
+
+        // Cell 5: Rule link, a sibling of the toggle, never inside it
+        var ruleCell = el("div", "event-rule-cell");
+        var ruleIdStr = normalizeRuleId(ev);
+        var ruleBtn = el("button", "rule-link-btn", ruleIdStr);
+        ruleBtn.type = "button";
+        ruleBtn.setAttribute("data-focus-id", "rulelink:" + key);
+        ruleBtn.setAttribute("aria-label", "Filter by rule " + ruleIdStr);
+        ruleBtn.title = "Filter by rule '" + ruleIdStr + "' and highlight it in the policy list";
+        ruleBtn.addEventListener("click", function () {
+          filterByRule(ruleIdStr);
+        });
+        ruleCell.appendChild(ruleBtn);
+        summaryRow.appendChild(ruleCell);
+        li.appendChild(summaryRow);
+
+        // Expanded Drawer
+        var expanded = el("div", "event-expanded");
+        expanded.id = drawerId;
+        expanded.setAttribute("role", "region");
+        var shortTarget = targetStr.length > 80 ? targetStr.slice(0, 80) + "…" : targetStr;
+        expanded.setAttribute("aria-label", "Details for " + (ev.tool_name || "unknown") + " " + shortTarget);
+        var metaGrid = el("div", "expanded-grid");
+        metaGrid.appendChild(makeKvBox("Timestamp (UTC)", ev.ts || "—"));
+        metaGrid.appendChild(makeKvBox("Session ID", ev.session_id || "—"));
+        metaGrid.appendChild(makeKvBox("Tool Call ID / Step", (ev.tool_use_id || "—") + " · step " + (ev.step !== undefined ? ev.step : "—")));
+        metaGrid.appendChild(makeKvBox("Event Type / Rule", (ev.event || "—") + " · " + ruleIdStr));
+        expanded.appendChild(metaGrid);
+
+        if (ev.reason) {
+          var reasonBlock = el("div", "detail-block");
+          reasonBlock.appendChild(el("div", "detail-block-label", "Decision Reason"));
+          reasonBlock.appendChild(el("pre", "code-pre", ev.reason));
+          expanded.appendChild(reasonBlock);
+        }
+
+        if (warnings.length > 0) {
+          var warnBox = el("div", "warning-box");
+          warnBox.appendChild(el("div", "detail-block-label", "Prompt Injection Warnings (Logged, Not Blocked)"));
+          for (var wIdx = 0; wIdx < warnings.length; wIdx++) {
+            var wObj = warnings[wIdx];
+            var lineText = "• Marker: " + wObj.marker + (wObj.excerpt ? " — Excerpt: \"" + wObj.excerpt + "\"" : "");
+            warnBox.appendChild(el("div", null, lineText));
+          }
+          expanded.appendChild(warnBox);
+        }
+
+        var inputBlock = el("div", "detail-block");
+        inputBlock.appendChild(el("div", "detail-block-label", "Full Tool Input (Untrusted Log Payload — Rendered as Plain Text)"));
+        inputBlock.appendChild(el("pre", "code-pre", JSON.stringify(ev.input || {}, null, 2)));
+        expanded.appendChild(inputBlock);
+
+        if (ev.note !== undefined) {
+          var noteBlock = el("div", "detail-block");
+          noteBlock.appendChild(el("div", "detail-block-label", "Audit Note"));
+          noteBlock.appendChild(el("pre", "code-pre", String(ev.note)));
+          expanded.appendChild(noteBlock);
+        }
+        li.appendChild(expanded);
+
+        var row = { key: key, li: li, toggle: toggle, timeCell: timeCell, ev: ev, sig: JSON.stringify(ev) };
+
+        function toggleOpen() {
+          state.expandedEventIds[key] = !state.expandedEventIds[key];
+          applyOpenState(row);
+        }
+        toggle.addEventListener("click", toggleOpen);
+        // Mouse users may click anywhere on the row. A click on any control inside it is that control's own.
+        summaryRow.addEventListener("click", function (e) {
+          if (e.target.closest("button, a, select")) return;
+          toggleOpen();
+        });
+
+        applyOpenState(row);
+        refreshRowTime(row);
+        return row;
+      }
+
+      function refreshRowTime(row) {
+        var rel = formatRelativeTime(row.ev.ts);
+        if (row.timeCell.textContent !== rel) row.timeCell.textContent = rel;
+        var label = rowLabel(row.ev) + ". Details";
+        if (row.toggle.getAttribute("aria-label") !== label) row.toggle.setAttribute("aria-label", label);
+      }
+
       function renderEvents() {
         var listEl = document.getElementById("events-list");
         var countEl = document.getElementById("events-count");
-        clearNode(listEl);
 
         var cappedEvents = state.events.slice(-500);
 
@@ -2408,13 +2918,29 @@
           if (state.filters.rule !== "all" && rId !== state.filters.rule) continue;
           if (state.filters.tool !== "all" && ev.tool_name !== state.filters.tool) continue;
           if (state.filters.session !== "all" && ev.session_id !== state.filters.session) continue;
+          if (state.filters.signal === "injection" && extractWarnings(ev).length === 0) continue;
+          if (state.filters.signal === "redacted" && !isRedacted(ev)) continue;
           filtered.push(ev);
         }
 
         countEl.textContent = String(filtered.length);
 
+        // Drop rows that are no longer shown, and rows whose event changed under the same key.
+        var wanted = {};
+        for (var w = 0; w < filtered.length; w++) wanted[filtered[w].__key] = filtered[w];
+        for (var key in rowCache) {
+          if (!Object.prototype.hasOwnProperty.call(rowCache, key)) continue;
+          var cached = rowCache[key];
+          if (!wanted[key] || cached.sig !== JSON.stringify(wanted[key])) {
+            if (cached.li.parentNode) cached.li.parentNode.removeChild(cached.li);
+            delete rowCache[key];
+          }
+        }
+        if (emptyCard && emptyCard.parentNode) emptyCard.parentNode.removeChild(emptyCard);
+        emptyCard = null;
+
         if (filtered.length === 0) {
-          var emptyCard = el("div", "empty-feed-state");
+          emptyCard = el("li", "empty-feed-state");
           if (!state.status.plugin_loaded) {
             emptyCard.appendChild(el("h3", "empty-feed-title", "Plugin Not Installed"));
             emptyCard.appendChild(el("p", "empty-feed-desc", "agent-guardrails is not loaded in Claude Code. Install the plugin hooks in ~/.claude/settings.json to inspect and log every tool call before execution."));
@@ -2429,133 +2955,30 @@
           return;
         }
 
+        // Put the rows in order without moving the ones already in place.
+        var cursor = listEl.firstChild;
         for (var idx = 0; idx < filtered.length; idx++) {
-          var evItem = filtered[idx];
-          var evKey = (evItem.tool_use_id || "ev") + "-" + idx + "-" + (evItem.ts || "");
-          var isOpen = Boolean(state.expandedEventIds[evKey]);
-          var evTone = (evItem.decision === "deny" || evItem.decision === "ask" || evItem.decision === "allow") ? " ev-" + evItem.decision : " ev-ask";
-          var wrapper = el("div", "event-item" + evTone + (isOpen ? " open" : ""));
-          wrapper.setAttribute("role", "listitem");
-
-          var summaryRow = el("div", "event-summary");
-          summaryRow.setAttribute("tabindex", "0");
-          summaryRow.setAttribute("role", "button");
-          summaryRow.setAttribute("aria-expanded", isOpen ? "true" : "false");
-
-          // Col 1: Relative time (exact ISO on hover)
-          var timeCell = el("span", "event-time", formatRelativeTime(evItem.ts));
-          timeCell.title = evItem.ts || "";
-          summaryRow.appendChild(timeCell);
-
-          // Col 2: Decision badge
-          var decCell = el("div");
-          decCell.appendChild(createDecisionBadge(evItem.decision));
-          summaryRow.appendChild(decCell);
-
-          // Col 3: Syntax-colored Tool pill
-          var toolWrap = el("div");
-          var toolPill = el("span", getToolPillClass(evItem.tool_name), evItem.tool_name || "unknown");
-          toolPill.title = evItem.tool_name || "";
-          toolWrap.appendChild(toolPill);
-          summaryRow.appendChild(toolWrap);
-
-          // Col 4: Target in monospace + redacted / injection warning badges
-          var targetCell = el("div", "event-target-cell");
-          var targetStr = extractEventTarget(evItem);
-          var targetSpan = el("span", "event-target", targetStr);
-          targetSpan.title = targetStr;
-          targetCell.appendChild(targetSpan);
-
-          if (targetStr.indexOf("[REDACTED:") !== -1) {
-            var redactFlag = el("span", "redacted-flag", "KEY REDACTED");
-            redactFlag.title = "Secret key automatically redacted before writing to audit log";
-            targetCell.appendChild(redactFlag);
+          var item = filtered[idx];
+          var row = rowCache[item.__key];
+          if (!row) {
+            row = buildEventRow(item);
+            rowCache[item.__key] = row;
+          } else {
+            refreshRowTime(row);
           }
-
-          var warnings = extractWarnings(evItem);
-          if (warnings.length > 0) {
-            var warnFlag = el("span", "injection-flag", "⚠ INJECTION (" + warnings.length + ")");
-            warnFlag.title = "Untrusted tool output matched prompt injection marker(s) — logged, not blocked";
-            targetCell.appendChild(warnFlag);
+          if (row.li === cursor) {
+            cursor = cursor.nextSibling;
+          } else {
+            listEl.insertBefore(row.li, cursor);
           }
-          summaryRow.appendChild(targetCell);
-
-          // Col 5: Rule link button
-          var ruleCell = el("div", "event-rule-cell");
-          var ruleIdStr = normalizeRuleId(evItem);
-          var ruleBtn = el("button", "rule-link-btn", ruleIdStr);
-          ruleBtn.type = "button";
-          ruleBtn.title = "Filter by rule '" + ruleIdStr + "' and highlight in policy list";
-          (function (rId) {
-            ruleBtn.addEventListener("click", function (e) {
-              e.stopPropagation();
-              focusRuleInLeftPane(rId);
-            });
-          })(ruleIdStr);
-          ruleCell.appendChild(ruleBtn);
-          summaryRow.appendChild(ruleCell);
-
-          (function (key, wrapNode, sumNode, toneCls) {
-            function toggle() {
-              state.expandedEventIds[key] = !state.expandedEventIds[key];
-              var nowOpen = Boolean(state.expandedEventIds[key]);
-              wrapNode.className = "event-item" + toneCls + (nowOpen ? " open" : "");
-              sumNode.setAttribute("aria-expanded", nowOpen ? "true" : "false");
-            }
-            sumNode.addEventListener("click", toggle);
-            sumNode.addEventListener("keydown", function (e) {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                toggle();
-              }
-            });
-          })(evKey, wrapper, summaryRow, evTone);
-
-          wrapper.appendChild(summaryRow);
-
-          // Expanded Drawer
-          var expanded = el("div", "event-expanded");
-          var metaGrid = el("div", "expanded-grid");
-
-          metaGrid.appendChild(makeKvBox("Timestamp (UTC)", evItem.ts || "—"));
-          metaGrid.appendChild(makeKvBox("Session ID", evItem.session_id || "—"));
-          metaGrid.appendChild(makeKvBox("Tool Call ID / Step", (evItem.tool_use_id || "—") + " · step " + (evItem.step !== undefined ? evItem.step : "—")));
-          metaGrid.appendChild(makeKvBox("Event Type / Rule", (evItem.event || "—") + " · " + ruleIdStr));
-          expanded.appendChild(metaGrid);
-
-          if (evItem.reason) {
-            var reasonBlock = el("div", "detail-block");
-            reasonBlock.appendChild(el("div", "detail-block-label", "Decision Reason"));
-            reasonBlock.appendChild(el("pre", "code-pre", evItem.reason));
-            expanded.appendChild(reasonBlock);
-          }
-
-          if (warnings.length > 0) {
-            var warnBox = el("div", "warning-box");
-            warnBox.appendChild(el("div", "detail-block-label", "Prompt Injection Warnings (Logged, Not Blocked)"));
-            for (var wIdx = 0; wIdx < warnings.length; wIdx++) {
-              var wObj = warnings[wIdx];
-              var lineText = "• Marker: " + wObj.marker + (wObj.excerpt ? " — Excerpt: \"" + wObj.excerpt + "\"" : "");
-              warnBox.appendChild(el("div", null, lineText));
-            }
-            expanded.appendChild(warnBox);
-          }
-
-          var inputBlock = el("div", "detail-block");
-          inputBlock.appendChild(el("div", "detail-block-label", "Full Tool Input (Untrusted Log Payload — Rendered as Plain Text)"));
-          inputBlock.appendChild(el("pre", "code-pre", JSON.stringify(evItem.input || {}, null, 2)));
-          expanded.appendChild(inputBlock);
-
-          if (evItem.note !== undefined) {
-            var noteBlock = el("div", "detail-block");
-            noteBlock.appendChild(el("div", "detail-block-label", "Audit Note"));
-            noteBlock.appendChild(el("pre", "code-pre", String(evItem.note)));
-            expanded.appendChild(noteBlock);
-          }
-
-          wrapper.appendChild(expanded);
-          listEl.appendChild(wrapper);
         }
+      }
+
+      function refreshTimes() {
+        for (var key in rowCache) {
+          if (Object.prototype.hasOwnProperty.call(rowCache, key)) refreshRowTime(rowCache[key]);
+        }
+        renderPostureAndBanner();
       }
 
       function makeKvBox(label, val) {
@@ -2565,31 +2988,68 @@
         return box;
       }
 
-      function focusRuleInLeftPane(ruleId) {
+      /* Filters by a rule and shows it in the policy list. Focus stays on the link the person used. */
+      function filterByRule(ruleId) {
         state.filters.rule = ruleId;
         syncFilterControls();
         renderAll();
-
-        var ruleButtons = document.querySelectorAll(".rule-row");
-        for (var i = 0; i < ruleButtons.length; i++) {
-          if (ruleButtons[i].getAttribute("data-rule-id") === ruleId) {
-            ruleButtons[i].scrollIntoView({ behavior: "smooth", block: "nearest" });
-            ruleButtons[i].focus();
-            break;
-          }
+        announce("Filtered by rule " + ruleId + ": " + document.getElementById("events-count").textContent + " events");
+        var node = ruleNodes[ruleId];
+        if (node && node.li.offsetParent) {
+          node.li.scrollIntoView({ block: "nearest" });
         }
       }
 
       /* =====================================================================
          10. FULL RENDER & API POLLING (/api/status, /api/policy, /api/events)
          ===================================================================== */
+      function focusIdOf(node) {
+        if (!node || node === document.body || !node.getAttribute) return null;
+        return node.getAttribute("data-focus-id") || node.id || null;
+      }
+
+      function findByFocusId(id) {
+        var byId = document.getElementById(id);
+        if (byId) return byId;
+        var nodes = document.querySelectorAll("[data-focus-id]");
+        for (var i = 0; i < nodes.length; i++) {
+          if (nodes[i].getAttribute("data-focus-id") === id) return nodes[i];
+        }
+        return null;
+      }
+
+      /* Safety net: what had focus, and where each list was scrolled, before a render. */
+      function captureUi() {
+        return {
+          focusId: focusIdOf(document.activeElement),
+          rulesTop: document.getElementById("rules-list").scrollTop,
+          eventsTop: document.getElementById("events-list").scrollTop
+        };
+      }
+
+      function restoreUi(snap) {
+        if (snap.focusId) {
+          var target = findByFocusId(snap.focusId);
+          if (target && target !== document.activeElement) {
+            try { target.focus({ preventScroll: true }); } catch (e) { /* element can no longer take focus */ }
+          }
+        }
+        var rulesList = document.getElementById("rules-list");
+        var eventsList = document.getElementById("events-list");
+        if (rulesList.scrollTop !== snap.rulesTop) rulesList.scrollTop = snap.rulesTop;
+        if (eventsList.scrollTop !== snap.eventsTop) eventsList.scrollTop = snap.eventsTop;
+      }
+
       function renderAll() {
+        var snap = captureUi();
+        assignEventKeys(state.events);
         populateDynamicFilters();
         syncFilterControls();
         renderPostureAndBanner();
         renderTelemetryStrip();
         renderRules();
         renderEvents();
+        restoreUi(snap);
       }
 
       function fetchJsonWithTimeout(url, timeoutMs) {
@@ -2624,6 +3084,7 @@
             state.usingSample = false;
             state.banner = null;
             state.status = results[0];
+            state.statusSig = JSON.stringify(results[0]);
             state.policy = results[1];
             state.events = Array.isArray(results[2]) ? results[2].slice(-500) : [];
             if (state.events.length > 0) {
@@ -2638,8 +3099,13 @@
           });
       }
 
+      /* A poll renders only when something changed: a new status or new events. */
       function startPollingEvents() {
         if (state.pollTimer) clearInterval(state.pollTimer);
+        if (state.clockTimer) clearInterval(state.clockTimer);
+        state.clockTimer = setInterval(function () {
+          if (!state.usingSample) refreshTimes();
+        }, 30000);
         state.pollTimer = setInterval(function () {
           if (state.usingSample) return;
           var afterParam = state.lastTimestamp ? encodeURIComponent(state.lastTimestamp) : "";
@@ -2648,13 +3114,21 @@
             fetchJsonWithTimeout("/api/events?after=" + afterParam, 1500)
           ])
             .then(function (res) {
-              state.status = res[0];
+              var changed = false;
+              var sig = JSON.stringify(res[0]);
+              if (sig !== state.statusSig) {
+                state.statusSig = sig;
+                state.status = res[0];
+                changed = true;
+              }
               var newEvents = Array.isArray(res[1]) ? res[1] : [];
               if (newEvents.length > 0) {
                 state.events = state.events.concat(newEvents).slice(-500);
                 state.lastTimestamp = state.events[state.events.length - 1].ts || state.lastTimestamp;
+                changed = true;
+                announce(newEvents.length + (newEvents.length === 1 ? " new event" : " new events"));
               }
-              renderAll();
+              if (changed) renderAll();
             })
             .catch(function () {
               // Keep last known live state on transient poll hiccup
@@ -2663,8 +3137,40 @@
       }
 
       /* =====================================================================
-         11. INTERACTIVE CONTROLS, SELF-DOWNLOAD & ?states=1 SWITCHER
+         11. INTERACTIVE CONTROLS, CLEAN DOWNLOAD & ?states=1 SWITCHER
          ===================================================================== */
+      function setupRulesCollapse() {
+        var btn = document.getElementById("rules-toggle");
+        var titleText = document.getElementById("rules-title-text");
+        var body = document.getElementById("rules-body");
+        var mq = window.matchMedia ? window.matchMedia("(max-width: 768px)") : null;
+
+        function setCollapsed(collapsed) {
+          state.rulesCollapsed = collapsed;
+          btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+          body.hidden = collapsed;
+        }
+        // On a phone the rules sit behind a disclosure button, closed at first: events are what you check there.
+        function apply() {
+          if (mq && mq.matches) {
+            btn.hidden = false;
+            titleText.hidden = true;
+            setCollapsed(state.rulesCollapsed);
+          } else {
+            btn.hidden = true;
+            btn.removeAttribute("aria-expanded");
+            titleText.hidden = false;
+            body.hidden = false;
+          }
+        }
+        btn.addEventListener("click", function () { setCollapsed(!state.rulesCollapsed); });
+        if (mq) {
+          if (mq.addEventListener) mq.addEventListener("change", apply);
+          else if (mq.addListener) mq.addListener(apply);
+        }
+        apply();
+      }
+
       function setupControls() {
         document.getElementById("filter-decision").addEventListener("change", function (e) {
           state.filters.decision = e.target.value;
@@ -2683,29 +3189,49 @@
           state.filters.session = e.target.value;
           renderAll();
         });
+        document.getElementById("filter-signal").addEventListener("change", function (e) {
+          state.filters.signal = e.target.value;
+          renderAll();
+        });
+        // A select that was open while new options came in catches up when it closes.
+        ["filter-rule", "filter-tool", "filter-session"].forEach(function (id) {
+          document.getElementById(id).addEventListener("blur", populateDynamicFilters);
+        });
         document.getElementById("clear-filters").addEventListener("click", function () {
           state.filters.decision = "all";
           state.filters.rule = "all";
           state.filters.tool = "all";
           state.filters.session = "all";
+          state.filters.signal = "all";
           syncFilterControls();
           renderAll();
         });
 
+        var skip = document.getElementById("skip-link");
+        skip.addEventListener("click", function (e) {
+          e.preventDefault();
+          document.getElementById("events-heading").focus();
+        });
+
+        // The visible text is the accessible name, so it always says what the click will do.
         var themeBtn = document.getElementById("theme-toggle");
         var themeLabel = document.getElementById("theme-label");
+        function syncThemeLabel() {
+          var current = document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+          themeLabel.textContent = current === "dark" ? "Switch to light theme" : "Switch to dark theme";
+        }
+        syncThemeLabel();
         themeBtn.addEventListener("click", function () {
-          var html = document.documentElement;
-          var current = html.getAttribute("data-theme") || "dark";
+          var current = document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
           var next = current === "dark" ? "light" : "dark";
-          html.setAttribute("data-theme", next);
-          themeLabel.textContent = next === "dark" ? "Light theme" : "Dark theme";
+          document.documentElement.setAttribute("data-theme", next);
+          try { localStorage.setItem("agent-guardrails-theme", next); } catch (e) { /* storage blocked: the choice lasts until reload */ }
+          syncThemeLabel();
         });
 
         var dlBtn = document.getElementById("download-html-btn");
         dlBtn.addEventListener("click", function () {
-          var fullHtml = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
-          var blob = new Blob([fullHtml], { type: "text/html;charset=utf-8" });
+          var blob = new Blob([PRISTINE], { type: "text/html;charset=utf-8" });
           var url = URL.createObjectURL(blob);
           var a = document.createElement("a");
           a.href = url;
@@ -2715,6 +3241,8 @@
           document.body.removeChild(a);
           URL.revokeObjectURL(url);
         });
+
+        setupRulesCollapse();
 
         var params = new URLSearchParams(window.location.search);
         if (params.get("states") === "1") {
@@ -2730,7 +3258,7 @@
               btn.setAttribute("aria-pressed", stObj.id === state.activePreviewState ? "true" : "false");
               btn.addEventListener("click", function () {
                 state.activePreviewState = stObj.id;
-                state.filters = { decision: "all", rule: "all", tool: "all", session: "all" };
+                state.filters = { decision: "all", rule: "all", tool: "all", session: "all", signal: "all" };
                 stObj.apply();
                 var allBtns = btnContainer.querySelectorAll(".state-btn");
                 for (var k = 0; k < allBtns.length; k++) {
