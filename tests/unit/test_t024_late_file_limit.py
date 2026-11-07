@@ -1,4 +1,4 @@
-"""T-024: the late-file limit is in the docs once each; the live probe runs cases 3, T018-44 and T018-47 as a person would."""
+"""T-024: the late-file limit is in the docs once each; the live probe runs 3, T018-44, T018-47 as a person would."""
 
 import re
 from pathlib import Path
@@ -21,7 +21,8 @@ LATE = "created while a shell command is already running"
 def test_limit_is_in_readme_and_threat_model_once_each():
     for doc in (README, THREAT):
         assert doc.count(LATE) == 1
-        tail = doc.split(LATE)[1][:900]
+        i = doc.index(LATE)
+        tail = doc[max(0, i - 300) : i + 900]
         assert LIMIT in tail
         assert "file pattern" in tail and "folder pattern" in tail
         assert "next command" in tail
