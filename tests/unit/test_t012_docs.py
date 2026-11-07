@@ -73,7 +73,7 @@ NEEDLES = [
     (25, "A", "- Known gap: Pre writes a log line only when it denies or asks."),
     (26, "T", "You see nothing during the session; the warning is only in the log."),
     (27, "T", "- An allowed call gets no line when it starts."),
-    (28, "T", "deny any path, absolute or relative, that contains those folder names (`prod/x.txt` is denied too)"),
+    (28, "T", "that contains those folder names below the project folder or outside the project (`prod/x.txt` is denied too)"),
     (29, "T", "`echo .env >> .gitignore` and `cp .env.example .env` both ask"),
     # T-013 split "the state file" into the counter (step 3, before the rules) and the memo (step 7, after them), which the old sentence blurred.
     # T-013 dropped "or log": an allow writes no Pre log line, so only the memo can fail for it (stage 7 finding).
