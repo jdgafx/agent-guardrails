@@ -1,4 +1,4 @@
-"""T-024: the late-file limit is in the docs once each; the live probe runs cases as a person would."""
+"""T-024: the late-file limit is in the docs once each; the probe runs cases as a person would."""
 
 import re
 from pathlib import Path
