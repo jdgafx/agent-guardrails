@@ -82,24 +82,25 @@ def _forms(path):
     return forms | {os.path.normpath(f) for f in forms}
 
 
-def _below(form, root):
-    """(whole path, part below the project root). The part below differs from the whole path only
-    when the path resolves, links followed, to the root or a place inside it. The test is on the
-    resolved path with a "/" boundary, never a text prefix: a link out of the project, a ".." that
-    leaves it, and a sibling folder named like it are all outside.
+def _below(path, root, cwd):
+    """The part of the path below the project root, or None when the path is not inside it.
+
+    The test runs once per candidate path, on the path as the tool would open it: ~ expanded,
+    joined to the working folder, links followed. It is a resolved-path test with a "/" boundary,
+    never a text prefix, and not a test of each spelling alone: ~/p/src, ../p/src and /home/u/p/src
+    all name one file. A link out of the project, a ".." that leaves it and a sibling folder named
+    like it are all outside.
     """
-    if root and form.startswith("/"):
-        try:
-            real = os.path.realpath(form)
-        except (ValueError, OSError):
-            return form, form
-        if real == root or real.startswith(root.rstrip("/") + "/"):
-            return form, real[len(root):]
-    return form, form
+    real = _real(path, cwd) if root and cwd else None
+    if real is not None and (real == root or real.startswith(root.rstrip("/") + "/")):
+        return real[len(root):]
+    return None
 
 
-def _path_forms(path, root=None):
-    return [_below(f, root) for f in _forms(path)]
+def _path_forms(path, root=None, cwd=None):
+    """(whole, below) pairs, one per spelling. Every spelling shares the path's below part."""
+    below = _below(path, root, cwd)
+    return [(f, f if below is None else below) for f in _forms(path)]
 
 
 def path_hit(forms, rule):
@@ -163,9 +164,9 @@ def match(policy, tool_name, tool_input, cwd=None, links=True):
     best = None
     root = _real(os.environ.get("CLAUDE_PROJECT_DIR", ""), cwd) if cwd else None
     # once per call, not once per rule
-    paths = [_path_forms(p, root) for p in candidate_paths(tool_name, tool_input)]
+    paths = [_path_forms(p, root, cwd) for p in candidate_paths(tool_name, tool_input)]
     if cwd and links:
-        paths += [_path_forms(p, root) for p in _link_targets(tool_name, tool_input, cwd)]
+        paths += [_path_forms(p, root, cwd) for p in _link_targets(tool_name, tool_input, cwd)]
     for r in policy["rules"]:
         if not rule_hit(r, tool_name, tool_input, paths):
             continue

@@ -317,6 +317,52 @@ def test_a_link_with_the_folder_name_inside_the_project(tree, monkeypatch, on):
             "deny", "deny-prod-config")
 
 
+# (cwd below the project, own-file spellings, denied spellings) for a project at ~/prod/app
+SPELLINGS = {
+    "": (["~/prod/app/src/x.py", "src/x.py", "./src/x.py", "../app/src/x.py",
+          "../../prod/app/src/x.py", "~/prod/app/src/../src/x.py"],
+         ["~/prod/app/config/production/db.yml", "config/production/db.yml",
+          "../app/config/production/db.yml", "~/prod/other/x",
+          "~/prod/app/../other/x", "../../prod/other/x"]),
+    "src": (["~/prod/app/src/x.py", "x.py", "../src/x.py", "../../app/src/x.py",
+             "../../../prod/app/src/x.py"],
+            ["~/prod/app/config/production/db.yml", "../config/production/db.yml",
+             "~/prod/other/x", "../../../prod/other/x"]),
+}
+
+
+@pytest.mark.parametrize("on", [False, True], ids=MODES)
+@pytest.mark.parametrize("sub", list(SPELLINGS))
+def test_every_spelling_of_an_own_path_gets_one_answer(tree, monkeypatch, on, sub):
+    """Round 1 covered absolute spellings only. A ~ or relative spelling of the same file was
+    matched on its whole text and denied. The inside-the-project test now runs once per path, on
+    the path as the tool opens it (~ expanded, joined to the working folder, links followed).
+    Project at ~/prod/app; HOME is tmp/home.
+    """
+    app = tree / "home" / "prod" / "app"
+    for d in ("src", "config/production", ".claude"):
+        (app / d).mkdir(parents=True)
+    (app / "src" / "x.py").write_text("x = 1\n")
+    (app / "config" / "production" / "db.yml").write_text("pw: x\n")
+    (tree / "home" / "prod" / "other").mkdir()
+    (tree / "home" / "prod" / "other" / "x").write_text("o\n")
+    _iso(tree, monkeypatch, on, app)
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(app))  # Claude Code sets it for every hook
+    cwd = app / sub if sub else app
+    own, denied = SPELLINGS[sub]
+    for path in own:
+        for tool, tin in _file_calls(path):
+            assert pre(tool, tin, cwd, tree)[0] == "allow", (tool, path, sub)
+        assert pre("Bash", {"command": "cat " + path}, cwd, tree)[0] == "allow", (path, sub)
+    for path in denied:
+        for tool, tin in _file_calls(path):
+            assert pre(tool, tin, cwd, tree) == ("deny", "deny-prod-config"), (tool, path, sub)
+        assert pre("Bash", {"command": "cat " + path}, cwd, tree) == (
+            "ask", "deny-prod-config"), (path, sub)
+    for cmd in ("ls ~/prod/app/src", "cd ~/prod/app && pytest", "ls ~/prod/app", "ls ~/prod/app/"):
+        assert pre("Bash", {"command": cmd}, cwd, tree)[0] == "allow", (cmd, sub)
+
+
 def test_vendor_copy_equals_core_and_demo_prints_24():
     core = ROOT / "packages" / "guardrails-core" / "src" / "guardrails_core"
     vendor = PLUGIN / "vendor" / "guardrails_core"
