@@ -3,7 +3,7 @@ name = "agent-guardrails-workspace"
 version = "0.1.0"
 description = "Workspace root for agent-guardrails (not published)."
 requires-python = ">=3.9"
-dependencies = ["guardrails-core", "guardrails-demo"]
+dependencies = ["guardrails-core", "guardrails-demo", "guardrails-dashboard"]
 
 [tool.uv.workspace]
 members = ["packages/*"]
@@ -11,13 +11,14 @@ members = ["packages/*"]
 [tool.uv.sources]
 guardrails-core = { workspace = true }
 guardrails-demo = { workspace = true }
+guardrails-dashboard = { workspace = true }
 
 [dependency-groups]
 dev = ["pytest>=9.0.3; python_full_version >= '3.10'", "ruff>=0.6", "jsonschema>=4"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["packages/guardrails-core/src", "packages/guardrails-demo/src"]
+pythonpath = ["packages/guardrails-core/src", "packages/guardrails-demo/src", "packages/guardrails-dashboard/src"]
 
 [tool.ruff]
 line-length = 100

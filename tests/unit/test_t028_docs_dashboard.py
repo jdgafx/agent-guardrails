@@ -24,12 +24,16 @@ def test_architecture_says_the_repo_ships_a_static_dashboard():
 
 
 def test_the_no_server_claim_is_true_in_the_code():
-    # The page asks for /api; the doc says no server in the plugin. Both must hold in the code.
+    # The page asks for /api. Only packages/guardrails-dashboard serves it; the plugin has none.
     page = (ROOT / "index.html").read_text(encoding="utf-8")
     assert all(p in page for p in ("/api/status", "/api/policy", "/api/events"))
     server = re.compile(
         r"http\.server|HTTPServer|socketserver|serve_forever|createServer|flask|uvicorn", re.I
     )
     src = (ROOT / "packages").rglob("*.py")
-    assert not [p for p in src if server.search(p.read_text(encoding="utf-8"))]
-    assert "no server" in ARCH.lower()
+    hits = [p for p in src if server.search(p.read_text(encoding="utf-8"))]
+    plugin = ROOT / "packages" / "guardrails-plugin"
+    assert not [p for p in hits if plugin in p.parents]
+    assert all(ROOT / "packages" / "guardrails-dashboard" in p.parents for p in hits), hits
+    assert hits  # the dashboard server exists
+    assert "no server" in ARCH.lower() and "opens no port" in ARCH
