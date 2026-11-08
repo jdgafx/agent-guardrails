@@ -256,8 +256,9 @@ DEMO_TABLE = [
     ("ask", "ask-git-push"), ("ask", "deny-force-push"), ("ask", "ask-rm-recursive"),
     ("ask", "ask-terraform-apply"), ("ask", "ask-vercel-prod"), ("ask", "ask-publish"),
     ("ask", "ask-mcp-write"), ("allow", "default-allow"), ("allow", "default-allow"),
+    ("allow", "default-allow"), ("ask", "ask-after-injection"), ("allow", "default-allow"),
     ("allow", "default-allow"), ("allow", "default-allow"), ("allow", "default-allow"),
-    ("allow", "default-allow"), ("ask", "step-cap"), ("ask", "step-cap"),
+    ("ask", "step-cap"), ("ask", "step-cap"),
 ]
 
 
@@ -275,6 +276,9 @@ def test_case21_demo_table_is_unchanged(tmp_path):
                    "tool_name": fx["tool_name"], "tool_input": fx["tool_input"],
                    "hook_event_name": "PreToolUse"}
         got.append(runner.decide(runner.run_hook("pre_tool_use.py", payload, str(data)).stdout))
+        if "tool_response" in fx:  # as runner.py does: the flagged page marks its session
+            post = dict(payload, hook_event_name="PostToolUse", tool_response=fx["tool_response"])
+            runner.run_hook("post_tool_use.py", post, str(data))
     assert got == DEMO_TABLE
 
 

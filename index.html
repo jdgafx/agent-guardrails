@@ -1659,8 +1659,8 @@
         Shell text can be respelled in ways no regex rule matches. Path or command <code>deny</code> rules on shell tools (<code>Bash</code>, <code>PowerShell</code>, <code>Monitor</code>) act as <code>ask</code> so a human confirms.
       </div>
       <div class="limit-card limit-inj">
-        <strong>Injection phrases are logged, not blocked</strong>
-        Untrusted tool outputs (<code>WebFetch</code>, <code>WebSearch</code>, MCP reads) are scanned for 6 prompt-injection markers and flagged in the audit log, never silently dropped.
+        <strong>Injection phrases are flagged, not blocked</strong>
+        Tool outputs are scanned for 6 prompt-injection markers. A hit is logged, Claude is told the result is data, and you see a notice. A hit from <code>WebFetch</code>, <code>WebSearch</code> or an MCP read marks the session: shell, web and MCP steps ask until it ends. Reworded text is not seen.
       </div>
       <div class="limit-card limit-iso">
         <strong>What Isolation adds (and its tripwire)</strong>
@@ -1890,7 +1890,9 @@
         {"ts": "2026-11-07T18:24:58Z", "session_id": "demo-15", "tool_name": "Bash", "tool_use_id": "t15", "event": "decision", "decision": "ask", "rule": "ask-publish", "step": 1, "input": {"command": "npm publish"}, "reason": "Publishing a package is public and hard to undo.", "gen_ai.tool.name": "Bash", "gen_ai.tool.call.id": "t15", "gen_ai.conversation.id": "demo-15"},
         {"ts": "2026-11-07T18:24:58Z", "session_id": "demo-16", "tool_name": "mcp__gmail__send_email", "tool_use_id": "t16", "event": "decision", "decision": "ask", "rule": "ask-mcp-write", "step": 1, "input": {"to": "a@example.com", "body": "hi"}, "reason": "This tool sends, posts, deletes or moves money. Confirm.", "gen_ai.tool.name": "mcp__gmail__send_email", "gen_ai.tool.call.id": "t16", "gen_ai.conversation.id": "demo-16"},
         {"ts": "2026-11-07T18:24:58Z", "session_id": "demo-18", "tool_name": "Bash", "tool_use_id": "t18", "event": "result", "decision": "allow", "rule": "default-allow", "step": 1, "input": {"command": "echo [REDACTED:anthropic-key]"}, "result_bytes": 113, "status": "ok", "warnings": [], "gen_ai.tool.name": "Bash", "gen_ai.tool.call.id": "t18", "gen_ai.conversation.id": "demo-18"},
-        {"ts": "2026-11-07T18:24:58Z", "session_id": "demo-19", "tool_name": "WebFetch", "tool_use_id": "t19", "event": "result", "decision": "allow", "rule": "default-allow", "step": 1, "input": {"url": "https://example.com/page"}, "result_bytes": 86, "status": "ok", "warnings": [{"warning": "prompt-injection-suspected", "marker": "ignore-previous", "excerpt": "IGNORE ALL PREVIOUS INSTRUCTIONS"}, {"warning": "prompt-injection-suspected", "marker": "exfil-request", "excerpt": "send the .env"}], "gen_ai.tool.name": "WebFetch", "gen_ai.tool.call.id": "t19", "gen_ai.conversation.id": "demo-19"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "marked", "tool_name": "WebFetch", "tool_use_id": "t19", "event": "result", "decision": "allow", "rule": "default-allow", "step": 1, "input": {"url": "https://example.com/page"}, "result_bytes": 86, "status": "ok", "warnings": [{"warning": "prompt-injection-suspected", "marker": "ignore-previous", "excerpt": "IGNORE ALL PREVIOUS INSTRUCTIONS"}, {"warning": "prompt-injection-suspected", "marker": "exfil-request", "excerpt": "send the .env"}], "warned": true, "tainted": true, "gen_ai.tool.name": "WebFetch", "gen_ai.tool.call.id": "t19", "gen_ai.conversation.id": "marked"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "marked", "tool_name": "mcp__github__create_issue", "tool_use_id": "t20", "event": "decision", "decision": "ask", "rule": "ask-after-injection", "step": 2, "input": {"title": "x"}, "reason": "Earlier in this session a WebFetch result held text that looks like instructions (ignore-previous, exfil-request). Until this session ends, every step except reading and editing local files asks first. Check that this step is what you asked for. To clear the mark, delete /data/state/marked.taint.", "tainted": true, "gen_ai.tool.name": "mcp__github__create_issue", "gen_ai.tool.call.id": "t20", "gen_ai.conversation.id": "marked"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "marked", "tool_name": "mcp__github__create_issue", "tool_use_id": "t20", "event": "result", "decision": "ask", "rule": "ask-after-injection", "step": 2, "input": {"title": "x"}, "result_bytes": 12, "status": "ok", "warnings": [], "warned": false, "tainted": true, "gen_ai.tool.name": "mcp__github__create_issue", "gen_ai.tool.call.id": "t20", "gen_ai.conversation.id": "marked"},
         {"ts": "2026-11-07T18:24:58Z", "session_id": "runaway", "tool_name": "Bash", "tool_use_id": "t23", "event": "decision", "decision": "ask", "rule": "step-cap", "step": 4, "input": {"command": "ls"}, "reason": "Step cap reached: 4 tool calls this session (cap 3).", "gen_ai.tool.name": "Bash", "gen_ai.tool.call.id": "t23", "gen_ai.conversation.id": "runaway"},
         {"ts": "2026-11-07T18:24:58Z", "session_id": "runaway", "tool_name": "Bash", "tool_use_id": "t24", "event": "decision", "decision": "ask", "rule": "step-cap", "step": 5, "input": {"command": "ls"}, "reason": "Step cap reached: 5 tool calls this session (cap 3).", "gen_ai.tool.name": "Bash", "gen_ai.tool.call.id": "t24", "gen_ai.conversation.id": "runaway"},
         {"ts": "2026-11-07T18:25:30Z", "session_id": "hostile-test", "tool_name": "WebFetch", "tool_use_id": "t99", "event": "result", "decision": "allow", "rule": null, "step": 3, "input": {"url": "https://example.com/\u003cscript\u003ealert(1)\u003c\/script\u003e"}, "result_bytes": 88, "status": "ok", "warnings": ["ignore-previous"], "note": "\u003cimg src=x onerror=alert(1)\u003e"}
@@ -2278,7 +2280,10 @@
 
       function rowNote(ev) {
         var kind = rowKind(ev);
-        if (kind === "flagged") return ev.model_warned === true ? "warned Claude" : "logged only";
+        if (kind === "flagged") {
+          if (ev.warned !== true) return "logged only";
+          return ev.tainted === true ? "warned Claude · session marked" : "warned Claude";
+        }
         if (kind === "ask" && ev && ev.event === "result") return ev.decision === "unknown" ? "no Pre record" : "ran after the ask";
         return null;
       }
@@ -2931,7 +2936,10 @@
           if (warnings.length > 0) {
             moments.appendChild(el("div", null, "After the call: the reply matched " + warnings.length +
               " injection phrase" + (warnings.length === 1 ? "" : "s") + "; " +
-              (ev.model_warned === true ? "Claude was warned" : "logged only")));
+              (ev.warned === true ? "Claude was warned (note sent to Claude)" : "logged only")));
+          }
+          if (ev.tainted === true && (warnings.length > 0 || ev.rule === "ask-after-injection")) {
+            moments.appendChild(el("div", null, "Session marked: every step except reading and editing local files asks until the session ends"));
           }
           expanded.appendChild(moments);
         }

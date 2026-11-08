@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import stat
 import time
 
 from .redact import redact
@@ -81,3 +82,43 @@ def recall_decision(data, session_id, tool_use_id):
                 if row.get("id") == tool_use_id:
                     found = row
     return found
+
+
+def mark_path(data, session_id):
+    """Where the session mark lives. It does not create the folder."""
+    return os.path.join(os.path.abspath(data), "state", safe_name(session_id) + ".taint")
+
+
+def mark_session(data, session_id, row):
+    """Mark the session: one JSON line per flagged outside-content result."""
+    _append(_state_path(data, session_id, ".taint"), json.dumps(row) + "\n")
+
+
+def is_marked(data, session_id):
+    """True when the mark file is there and not empty. A missing file is False; any other trouble
+    (no data folder, a directory in its place, no read permission) is raised, so the caller asks."""
+    if not data:
+        raise RuntimeError("CLAUDE_PLUGIN_DATA is not set, so the session mark cannot be read")
+    try:
+        st = os.stat(mark_path(data, session_id))
+    except FileNotFoundError:
+        return False
+    if not stat.S_ISREG(st.st_mode):
+        raise OSError("%s is not a file" % mark_path(data, session_id))
+    return st.st_size > 0
+
+
+def first_mark(data, session_id):
+    """The first mark row that parses, or None. Only for the reason text, never for the decision."""
+    try:
+        with open(mark_path(data, session_id), encoding="utf-8") as f:
+            for line in f:
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(row, dict):
+                    return row
+    except OSError:
+        pass
+    return None

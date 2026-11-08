@@ -38,7 +38,8 @@ NEEDLES = [
     (3, "T", "`git -C repo push --force`, `git -c key=value push -f`, `git --no-pager push -f` and `git --git-dir=x push -f` ask under the force-push rule."),
     # T-013 (EGM stage 7): "The real control" was a judgement; T-014 built an opt-in isolation layer, so the sentence now says what it covers.
     (4, "T", "Isolation is the control against a determined injection. This plugin's opt-in isolation blocks shell reads of the listed secret files only; for everything else use a container or a separate user with no access to your secrets."),
-    (5, "T", "### 8. Nothing controls what leaves the machine"),
+    # T-033: with a marked session, "nothing controls what leaves the machine" is no longer true.
+    (5, "T", "### 8. Little controls what leaves the machine"),
     # T-008 built the secret rules: the doc names the listed credential files and what is left.
     (6, "T", "- Your secrets, as far as a tool call names a listed credential file or folder (`.env` files, keys, cloud, SSH, git and package-registry credentials) in any field of its input (denied) or as a word of a shell command (asked)."),
     (6, "T", "credential files not on the list (`~/.kube` and `~/.docker` other than their config files, and any store not named in `policy.json`)"),
@@ -71,7 +72,8 @@ NEEDLES = [
     (24, "A", "Source: the Claude Code 2.1.295 release note"),
     (24, "A", "- **No check of the Claude Code version.** `onFailure` needs 2.1.295 or later. The plugin does not test for it, so a user on an older version gets no warning that the hard fail-safe is missing."),
     (25, "A", "- Known gap: Pre writes a log line only when it denies or asks."),
-    (26, "T", "You see nothing during the session; the warning is only in the log."),
+    # T-033: the scan now tells Claude and shows the person a notice.
+    (26, "T", "you see a one-line notice in the window; the result is not removed or changed"),
     (27, "T", "- An allowed call gets no line when it starts."),
     (28, "T", "that contains those folder names below the project folder or outside the project (`prod/x.txt` is denied too)"),
     (29, "T", "`echo .env >> .gitignore` and `cp .env.example .env` both ask"),
@@ -108,6 +110,8 @@ NEEDLES = [
 # Old wording that the review found wrong. It must be gone.
 STALE = [
     ("T", "I did not verify"),
+    ("T", "You see nothing during the session; the warning is only in the log."),
+    ("T", "it does not tell the model."),
     ("T", "We do not try"),
     ("T", "What we protect"),
     ("T", "Who or what we worry about"),

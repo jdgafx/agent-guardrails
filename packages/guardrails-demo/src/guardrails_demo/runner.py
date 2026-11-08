@@ -78,9 +78,9 @@ def main():
                 rec, raw = last_audit_line(data)
                 if post.returncode != 0:
                     note = "AUDIT FAILED: " + post.stderr.strip()
-                elif rec.get("warnings"):
-                    mk = rec["warnings"][0]["marker"]
-                    note = "injection warning: %s (logged, not injected)" % mk
+                elif rec.get("warned"):
+                    note = ("note sent to Claude; session marked" if rec.get("tainted")
+                            else "note sent to Claude")
                 elif "[REDACTED" in raw and not any(v in raw for v in FAKES.values()):
                     note = "secret redacted in log"
             shown = redact_text(json.dumps(fx["tool_input"], separators=(",", ":")))
