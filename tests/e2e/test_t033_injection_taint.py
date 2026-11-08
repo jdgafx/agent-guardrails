@@ -371,11 +371,11 @@ def test_case_25_the_demo_shows_the_mark_and_the_readme_table_matches():
     assert [c for c in out.splitlines() if "mcp__github__create_issue" in c][0].count(MARK_ASK)
     assert "26 calls: 11 allow, 11 ask, 4 deny." in out
     assert "All decisions matched the fixtures." in out
-    readme = (ROOT / "README.md").read_text()
-    block = readme.split("```text\n#   tool", 1)[1].split("```", 1)[0]
+    doc = (ROOT / "docs" / "ARCHITECTURE.md").read_text()  # T-038: the demo table moved here
+    block = doc.split("```text\n#   tool", 1)[1].split("```", 1)[0]
     shown = [ln for ln in ("#   tool" + block).splitlines() if ln and ln != "..."]
     printed = [ln.rstrip() for ln in out.splitlines()]
-    assert [ln for ln in shown if ln not in printed] == []  # every row the README shows is real
+    assert [ln for ln in shown if ln not in printed] == []  # every row the doc shows is real
     assert "26 calls: 11 allow, 11 ask, 4 deny. Step cap for this demo: 3." in shown
 
 

@@ -467,6 +467,7 @@ def test_the_shell_tools_live_in_rules():
 # ---- G. Docs
 
 README = (ROOT / "README.md").read_text(encoding="utf-8")
+THREAT = (ROOT / "docs" / "THREAT_MODEL.md").read_text(encoding="utf-8")
 DOCS = {n: (ROOT / n).read_text(encoding="utf-8") for n in
         ("README.md", "docs/ARCHITECTURE.md", "docs/THREAT_MODEL.md", "GLOSSARY.md")}
 HEADS = ("hook deny", "tripwire deny", "ask + log only", "sandbox", "redacted", "GitHub ruleset",
@@ -485,7 +486,7 @@ def rows(sec):
 
 
 def test_case_39_the_threat_table():
-    sec = section(README, "What holds each threat")
+    sec = section(THREAT, "What holds each threat")  # T-038: moved from the README
     table = [r for r in rows(sec[:sec.index("| Where you run Claude Code")])
              if not set(r[0]) <= set("-")]
     assert table[0] == ["Threat", "Example", "Isolation off (default)", "Isolation on"]
@@ -498,7 +499,7 @@ def test_case_39_the_threat_table():
 
 
 def test_case_40_the_mode_table():
-    sec = section(README, "What holds each threat")
+    sec = section(THREAT, "What holds each threat")
     start = sec.index("| Where you run Claude Code")
     tab = [r for r in rows(sec[start:]) if not set(r[0]) <= set("-")]
     assert tab[0] == ["Where you run Claude Code", "What a hook's ask does", "Source"]

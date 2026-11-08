@@ -55,8 +55,8 @@ def test_the_no_server_claim_is_true_in_the_code():
 def test_readme_get_started_has_the_install_and_start_commands():
     text = (ROOT / "README.md").read_text(encoding="utf-8")
     start = text.index("## Get started")
-    assert start < text.index("## The seven controls")
-    block = text[start:text.index("## The seven controls")]
+    assert start < text.index("## What it does")
+    block = text[start:text.index("## What it does")]
     for need in ("claude plugin marketplace add jdgafx/agent-guardrails",
                  "claude plugin install agent-guardrails@agent-guardrails",
                  'exec python3 "$f"', "dashboard.py",

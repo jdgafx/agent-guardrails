@@ -217,7 +217,8 @@ def test_broken_added_policy_keeps_denies_and_asks_on_unmatched_calls(
         assert len(policy.load_policy(str(root), None)[1]) == 1
 
 
-@pytest.mark.parametrize("name", ["README.md", "docs/THREAT_MODEL.md", "docs/ARCHITECTURE.md"])
+# T-038: the README no longer describes the policy lookup, so it is not in this list
+@pytest.mark.parametrize("name", ["docs/THREAT_MODEL.md", "docs/ARCHITECTURE.md"])
 def test_every_doc_that_describes_the_env_policy_lookup_says_a_bad_file_makes_calls_ask(name):
     text = flat(name)
     assert re.search(r"a missing or broken added policy file is left out, the shipped rules "
@@ -246,14 +247,15 @@ def test_except_is_read_only_by_path_rules(rule, want):
 
 def test_docs_say_except_belongs_to_path_rules_only():
     assert "on path rules only" in flat("GLOSSARY.md")
-    readme = flat("README.md")
+    readme = flat("docs/ARCHITECTURE.md")  # T-038: the README's "Change the rules" moved here
     assert "for `path` rules only" in readme
     assert "On a `command` or `tool` rule `except` is ignored" in readme
     arch = flat("docs/ARCHITECTURE.md")
     assert "an optional `except` list that only `path` rules read" in arch
     assert "that `except` is on a `path` rule" in arch
-    # README must not offer `except` as the way to relax the MCP (tool) rule
-    over = readme.split("**Over-matching.**")[1].split("**Needs Claude Code")[0]
+    # the docs must not offer `except` as the way to relax the MCP (tool) rule
+    threat = flat("docs/THREAT_MODEL.md")
+    over = threat.split("**Over-matching.**")[1].split("**Needs Claude Code")[0]
     assert "`except` does not work on it" in over
 
 
@@ -261,4 +263,4 @@ def test_docs_do_not_overclaim_or_carry_process_notes():
     assert "allowed with no prompt" not in " ".join(flat(n) for n in DOCS)
     assert "T-013" not in flat("docs/THREAT_MODEL.md")
     assert "T-013" not in flat("README.md")
-    assert "For other tool names no fix is written down" in flat("README.md")
+    assert "For other tool names no fix is written down" in flat("docs/THREAT_MODEL.md")

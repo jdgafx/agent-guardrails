@@ -177,12 +177,19 @@ def slug(heading):
 
 
 def prose_blocks(text):
-    """Blocks of text outside code fences, tables and the image line, split at blank lines."""
+    """Paragraphs and single list items outside code fences, tables and the image line."""
     text = re.sub(r"```.*?```", "", text, flags=re.S)
     for block in re.split(r"\n\s*\n", text):
-        lines = [ln for ln in block.splitlines() if not ln.startswith(("|", "!["))]
-        if lines:
-            yield " ".join(" ".join(lines).split())
+        items = []
+        for ln in block.splitlines():
+            if ln.startswith(("|", "![")):
+                continue
+            if not items or re.match(r"\s*(?:[-*]|\d+\.)\s", ln):
+                items.append(ln)
+            else:
+                items[-1] += " " + ln
+        for item in items:
+            yield " ".join(item.split())
 
 
 def test_readme_has_the_front_page_sections_in_order():
