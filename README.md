@@ -40,17 +40,15 @@ No account and no sign-up for the plugin or the dashboard: the dashboard reads t
 
 | Answer | What happens | Example |
 |---|---|---|
-| **Deny** | A file or MCP tool call whose path field names a secret file (`.env`, private keys, cloud and SSH credentials) or production config does not run. | `Read .env` |
-| **Ask** | Claude Code asks you first for pushes, recursive deletes, deploys, publishes and MCP tools that send or delete. A shell command that names a secret file asks too, because shell text can be respelled. | `git push origin main`, `cat .env` |
+| **Deny** | A file or MCP tool call whose path field names a secret file or production config does not run. | `Read .env` |
+| **Ask** | You are asked first for pushes, recursive deletes, deploys, publishes and MCP tools that send, post, delete or pay. A shell command that names a secret file asks too. | `git push origin main`, `cat .env` |
 | **Allow** | A call that no rule matches runs. Claude Code's own permission prompts still apply. | `ls` |
-| **Flag** | The output of every tool you have not trusted is scanned for six injection phrases. On a hit, Claude is told in the same step that the result is data, not instructions, and you see a notice. The text is not removed. | A web page that says "ignore previous instructions" |
-| **Session mark** | After a flag on a result from WebFetch, WebSearch or an MCP read tool, every step except local file tools and a few planning tools asks until the session ends. | A shell command after such a page |
-| **Step cap** | After 200 calls in one session, a call that no rule matches asks. | 201st call |
-| **Log** | One JSON line per deny, ask and call that ran, file mode 0600. Seven key formats are replaced with `[REDACTED:kind]` before writing. | `${CLAUDE_PLUGIN_DATA}/audit/` |
+| **Flag** | Tool output with one of six injection phrases is flagged. Claude is told it is data, not instructions, and you see a notice. The text is not removed. | A page that says "ignore previous instructions" |
+| **Session mark** | After a flag on WebFetch, WebSearch or MCP read output, every step except local file tools and a few planning tools asks until the session ends. | A shell command after such a page |
+| **Step cap** | After 200 calls in one session, a call that no rule matches asks. | The 201st call |
+| **Log** | One JSON line per deny, ask and call that ran (file mode 0600). Seven key formats are replaced with `[REDACTED:kind]`. | `${CLAUDE_PLUGIN_DATA}/audit/` |
 
-A rule that would deny a shell command asks instead, so you can still say yes. If the hook itself fails on a call no rule matches, that call asks too. Words used here are in the [glossary](GLOSSARY.md).
-
-![The dashboard on the 26 sample calls of make demo: the policy rules on the left, the security events on the right. A made-up key, no real data.](docs/screenshots/dashboard.png)
+A rule that would deny a shell command asks instead, so you can still say yes. An internal error in the hook on a call no rule matches asks too. Words used here are in the [glossary](GLOSSARY.md).
 
 ## Known limits
 
@@ -70,6 +68,8 @@ Each bullet links to its full text.
 - Blocking shell reads of secret files needs the opt-in isolation layer, which is off by default because it breaks `ssh` and needs user namespaces ([how it works and what it costs](docs/ARCHITECTURE.md#isolation-from-the-users-side)).
 
 Which layer holds which threat, one table: "What holds each threat" in [THREAT_MODEL](docs/THREAT_MODEL.md#what-holds-each-threat).
+
+![The dashboard on the 26 sample calls of make demo: the policy rules on the left, the security events on the right. A made-up key, no real data.](docs/screenshots/dashboard.png)
 
 ## Try it without Claude Code
 
