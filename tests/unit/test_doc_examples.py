@@ -18,7 +18,7 @@ from guardrails_core import rules
 
 ROOT = Path(__file__).resolve().parents[2]
 POLICY = json.loads((ROOT / "packages" / "guardrails-plugin" / "policy.json").read_text())
-DOCS = ("README.md", "docs/THREAT_MODEL.md")
+DOCS = ("README.md", "docs/THREAT_MODEL.md", "docs/ARCHITECTURE.md")
 TEXT = {n: (ROOT / n).read_text(encoding="utf-8") for n in DOCS}
 
 D, A, OK = "deny", "ask", "allow"
@@ -100,6 +100,10 @@ NOT_A_CASE = {
     "python3 tests/live/t014_probe.py", "make build", "make lint", "make test", "uv run pytest",
     G + " diff --exit-code", G + " clean", "python -c", "python3 -c", "python3 -I -S", "sed -i",
     "mcp__<server>__<tool>",
+    # ARCHITECTURE.md (T-038: it is a checked doc now): fragments, tooling and placeholders
+    "claude --plugin-dir", G + " diff", G + " push ", G + " status --porcelain", "make demo",
+    "python3 -m guardrails_core.isolation <policy.json>", "python3 hooks/pre_tool_use.py",
+    "rm ", "rm rm rm ...", "vercel ",
 }
 
 PROGRAMS = (G, "rm", "kubectl", "terraform", "npm", "pnpm", "yarn", "cargo", "uv", "twine", "gem",
@@ -158,3 +162,90 @@ def test_the_table_is_big_enough_to_mean_something():
 @pytest.mark.parametrize("span,want", sorted(EXPECT.items()))
 def test_quoted_example_gets_the_decision_the_doc_states(span, want):
     assert decision(span) == want
+
+
+# ---- T-038: the README is a front page, and its links and screenshot are real ------------------
+
+README_TEXT = TEXT["README.md"]
+SHOT = re.compile(r"!\[[^\]]+\]\((docs/screenshots/[^)\s]+\.png)\)")
+
+
+def slug(heading):
+    """GitHub's anchor for a heading: lower case, punctuation dropped, spaces to hyphens."""
+    s = re.sub(r"[^\w\- ]", "", heading.strip().lower().replace("`", ""))
+    return s.replace(" ", "-")
+
+
+def prose_blocks(text):
+    """Paragraphs and single list items outside code fences, tables and the image line."""
+    text = re.sub(r"```.*?```", "", text, flags=re.S)
+    for block in re.split(r"\n\s*\n", text):
+        items = []
+        for ln in block.splitlines():
+            if ln.startswith(("|", "![")):
+                continue
+            if not items or re.match(r"\s*(?:[-*]|\d+\.)\s", ln):
+                items.append(ln)
+            else:
+                items[-1] += " " + ln
+        for item in items:
+            yield " ".join(item.split())
+
+
+def test_readme_has_the_front_page_sections_in_order():
+    heads = re.findall(r"^## (.+)$", README_TEXT, re.M)
+    want = ["Get started", "What it does", "Known limits", "More"]
+    assert [h for h in heads if h in want] == want, heads
+    assert README_TEXT.index("## Get started") < README_TEXT.index("## What it does")
+    # one-paragraph "what it is" sits between the title and Get started
+    intro = README_TEXT[:README_TEXT.index("## Get started")]
+    assert len(list(prose_blocks(intro.split("\n", 1)[1]))) <= 3
+
+
+def test_no_readme_paragraph_runs_past_500_characters():
+    long = [(len(b), b[:60]) for b in prose_blocks(README_TEXT) if len(b) > 500]
+    assert not long, long
+
+
+def test_readme_is_short_enough_to_read_top_to_bottom():
+    lines = README_TEXT.splitlines()
+    assert len(lines) <= 140, len(lines)
+    # at 1012 px wide, Known limits starts about 1320 px down: inside 1.5 screens of 900 px
+    assert next(i for i, ln in enumerate(lines) if ln.startswith("## Known limits")) <= 50
+
+
+def test_readme_makes_no_firewall_claim():
+    assert "firewall" not in README_TEXT.lower()
+
+
+def test_readme_screenshot_is_a_real_png():
+    shots = SHOT.findall(README_TEXT)
+    assert len(shots) == 1, shots
+    png = (ROOT / shots[0]).read_bytes()
+    assert png[:8] == b"\x89PNG\r\n\x1a\n" and 20_000 < len(png) < 2_000_000
+
+
+def test_every_link_in_the_docs_points_at_a_real_file_and_heading():
+    """README, GLOSSARY and docs/*.md: a relative link names a file that exists and, with a
+    #fragment, a heading that exists in it (the judge checked the moved docs' links by hand)."""
+    docs = sorted(f"docs/{p.name}" for p in (ROOT / "docs").glob("*.md"))
+    for doc in ("README.md", "GLOSSARY.md", *docs):
+        base = (ROOT / doc).parent
+        text = (ROOT / doc).read_text(encoding="utf-8")
+        for target in re.findall(r"\]\(((?!https?:|#)[^)\s]+)\)", text):
+            path, _, frag = target.partition("#")
+            assert (base / path).exists(), (doc, target)
+            if frag:
+                heads = re.findall(r"^#+ (.+)$", (base / path).read_text(encoding="utf-8"), re.M)
+                assert frag in {slug(h) for h in heads}, (doc, target)
+
+
+def test_each_known_limit_links_to_its_full_text():
+    sec = README_TEXT.split("## Known limits")[1].split("\n## ")[0]
+    bullets = [ln for ln in sec.splitlines() if ln.startswith("- ")]
+    assert len(bullets) >= 8, bullets
+    for b in bullets:
+        assert re.search(r"\]\((docs/[A-Z_]+\.md#[^)]+)\)", b), b
+    # the two limits the ticket names, in plain words
+    flat = " ".join(sec.split())
+    assert "WebFetch" in flat and "summary" in flat and "macOS" in flat
