@@ -321,6 +321,19 @@ def test_case_22_ci_check_sees_an_untracked_vendored_file(tmp_path):
     assert "?? packages/guardrails-plugin/vendor/guardrails_core/extra.py" in bad.stdout
 
 
+def test_t037_ci_check_sees_a_stale_vendored_page(tmp_path):
+    step = ci_step()
+    repo, git, env = scratch_repo(tmp_path)
+    page = repo / "index.html"
+    page.write_text(page.read_text(encoding="utf-8") + " ", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "page edited, no make build")
+    bad = subprocess.run(["bash", "-e", "-c", step], cwd=repo, env=env, capture_output=True,
+                         text=True)
+    assert bad.returncode != 0
+    assert "packages/guardrails-plugin/vendor/index.html" in bad.stdout
+
+
 # ---- normalization and response shape ------------------------------------------------------
 
 

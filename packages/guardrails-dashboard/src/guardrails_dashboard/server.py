@@ -27,7 +27,8 @@ LIMIT = 500  # most lines one /api/events request returns (the page keeps 500)
 DAY_FILE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.jsonl$")
 CURSOR = re.compile(r"^(\d{4}-\d{2}-\d{2}):(\d{1,15})$")
 FOLDERS = "agent-guardrails-*"
-REPO = Path(__file__).resolve().parents[4]
+PLUGIN_KEY = "agent-guardrails@agent-guardrails"  # plugin@marketplace, as in installed_plugins.json
+HANDOVER = "GUARDRAILS_DASHBOARD_HANDOVER"
 
 
 def _day_files(data):
@@ -268,17 +269,25 @@ def _say(*lines):
     print("\n".join(lines), flush=True)
 
 
-def main(argv=None):
+def _plugin_version(plugin_root):
+    try:
+        meta = os.path.join(str(plugin_root), ".claude-plugin", "plugin.json")
+        with open(meta, encoding="utf-8") as f:
+            return str(json.load(f).get("version") or "unknown")
+    except (OSError, ValueError, AttributeError):
+        return "unknown"
+
+
+def main(argv, plugin_root, page, data=None, notes=()):
+    """Serve plugin_root's policy and the page. data is the default for --data; notes are extra
+    start-up lines, printed after the link, the data folder and the policy lines."""
     ap = argparse.ArgumentParser(prog="guardrails_dashboard",
                                  description="Local read-only server for the dashboard page.")
     ap.add_argument("--port", type=int, default=PORT, help="port on 127.0.0.1 (0 picks a free one)")
-    ap.add_argument("--data", help="the plugin data folder to read (default: search for it)")
+    ap.add_argument("--data", default=data,
+                    help="the plugin data folder to read (default: search for it)")
     args = ap.parse_args(argv)
-    plugin_root, page = REPO / "packages" / "guardrails-plugin", REPO / "index.html"
-    for need in (plugin_root / "policy.json", page):
-        if not need.is_file():
-            _say("cannot find %s: run this from a clone of the agent-guardrails repo." % need)
-            return 2
+    plugin_root, page = Path(plugin_root), Path(page)
     folder, others, looked = find_data(args.data, os.environ, os.path.expanduser("~"))
     if folder is None:
         _say("No agent-guardrails data folder found. Looked in:", *("  " + p for p in looked),
@@ -291,15 +300,23 @@ def main(argv=None):
         return 2
     port = httpd.server_address[1]
     env_policy = os.environ.get("GUARDRAILS_POLICY")
+    if data and args.data == data:
+        where = " (this install's folder; --data picks another)"
+    elif others:
+        where = " (newest of %d found; --data picks another)" % (len(others) + 1)
+    else:
+        where = ""
     _say("agent-guardrails dashboard: http://127.0.0.1:%d/?key=%s" % (port, httpd.key),
          "  Open that exact link. The key is new at every start; any other login account on this "
          "computer is refused without it.",
-         "  data folder: %s%s" % (folder, " (newest of %d found; --data picks another)"
-                                  % (len(others) + 1) if others else ""),
+         "  data folder: %s%s" % (folder, where),
          *("  also found:  " + o for o in others),
+         "  plugin: %s (version %s from .claude-plugin/plugin.json)"
+         % (plugin_root, _plugin_version(plugin_root)),
          "  shipped policy: %s" % (plugin_root / "policy.json"),
          "  GUARDRAILS_POLICY: %s" % (env_policy or "not set in this shell (if your Claude Code "
                                       "sessions set it, set it here too)"),
+         *notes,  # before the last line, so a reader that stops at "Ctrl-C stops it" sees them
          "  Read-only. Only this computer can connect. Ctrl-C stops it.")
     signal.signal(signal.SIGINT, signal.default_int_handler)  # also when a parent set it to ignore
     try:
@@ -312,5 +329,67 @@ def main(argv=None):
     return 0
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+def _records(config):
+    """Claude Code's records for this plugin, or None when the file is not in the known shape."""
+    try:
+        path = os.path.join(config, "plugins", "installed_plugins.json")
+        with open(path, encoding="utf-8") as f:
+            recs = json.load(f)["plugins"][PLUGIN_KEY]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    ok = isinstance(recs, list) and recs and all(
+        isinstance(r, dict) and isinstance(r.get("installPath"), str) for r in recs)
+    return recs if ok else None
+
+
+def _also(rec):
+    project = ", project %s" % rec["projectPath"] if rec.get("projectPath") else ""
+    return "  also installed: %s (scope %s%s)" % (rec["installPath"], rec.get("scope"), project)
+
+
+def run_installed(own, argv):
+    """Start the dashboard from a plugin folder (dashboard.py calls this).
+
+    The copy that serves is the one Claude Code's install record names, so the policy on the page
+    is the policy in force. Another copy hands over to it. This code runs from whichever copy the
+    start command reached first, maybe an old one: keep it small and its interface fixed.
+    """
+    own = Path(own).resolve()
+    notes, data = [], None
+    if own.parents[2].name == "cache" and own.parents[3].name == "plugins":
+        config = own.parents[4]
+        data = str(config / "plugins" / "data" / re.sub(r"[^A-Za-z0-9_-]", "-", PLUGIN_KEY))
+        recs = _records(str(config))
+        unchecked = ("  warning: %s %s: the policy shown is this copy's and could not be checked "
+                     "against Claude Code's record.")
+        record_file = config / "plugins" / "installed_plugins.json"
+        if recs is None:
+            notes.append(unchecked % (record_file, "is not in the shape this dashboard knows, or "
+                                      "has no record for " + PLUGIN_KEY))
+        else:
+            picked = next((r for r in recs if r.get("scope") == "user"),
+                          max(recs, key=lambda r: str(r.get("lastUpdated") or "")))
+            notes += [_also(r) for r in recs if r is not picked]
+            target = Path(picked["installPath"]).resolve()
+            if target == own:
+                pass
+            elif target.parent != own.parent:  # never run code from outside this plugin's cache
+                why = "names %s, which is not a version folder of this plugin" % target
+                notes = [unchecked % (record_file, why)]
+            elif os.environ.get(HANDOVER):
+                _say("Claude Code's plugin record changed while the dashboard was starting; "
+                     "run the command again.")
+                return 2
+            elif (target / "dashboard.py").is_file():
+                os.environ[HANDOVER] = "1"
+                os.execv(sys.executable, [sys.executable, str(target / "dashboard.py"), *argv])
+            else:
+                _say("The agent-guardrails version in force (%s, version %s) has no dashboard. "
+                     "Run: claude plugin update %s" % (target, _plugin_version(target), PLUGIN_KEY))
+                return 2
+    for need in (own / "policy.json", own / "vendor" / "index.html"):
+        if not need.is_file():
+            _say("cannot find %s: reinstall the plugin with claude plugin install %s"
+                 % (need, PLUGIN_KEY))
+            return 2
+    return main(argv, own, own / "vendor" / "index.html", data, notes)

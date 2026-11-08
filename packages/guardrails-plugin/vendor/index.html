@@ -1,0 +1,3445 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>agent-guardrails · Tool-call guard and audit log</title>
+  <script>
+    /* Sets the theme before the first paint: saved choice, else the OS setting. Storage may be blocked. */
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem("agent-guardrails-theme"); } catch (e) { t = null; }
+      if (t !== "light" && t !== "dark") {
+        t = (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) ? "light" : "dark";
+      }
+      document.documentElement.setAttribute("data-theme", t);
+    })();
+  </script>
+  <style>
+    :root {
+      /* Type scale: four sizes only. Nothing under 12px. */
+      --fs-meta: 12px;   /* meta, badges, labels */
+      --fs-row: 13px;    /* rows, mono targets, controls */
+      --fs-body: 14px;   /* body */
+      --fs-value: 20px;  /* tile values */
+    }
+
+    :root, [data-theme="dark"] {
+      --bg-canvas: #07090d;
+      --bg-surface: #0d1117;
+      --bg-elevated: #151b23;
+      --bg-hover: #1b2330;
+      --bg-selected: #17263c;
+      --bg-code: #090c10;
+      --border-subtle: #212832;
+      --border-strong: #303946;
+      --border-control: #768390;
+      --border-focus: #58a6ff;
+
+      --text-primary: #edf2f7;
+      --text-secondary: #9ba5b4;
+      --text-muted: #8b949e;
+
+      --accent-blue: #58a6ff;
+      --accent-blue-bg: rgba(56, 139, 253, 0.16);
+      --accent-blue-border: rgba(88, 166, 255, 0.45);
+      --brand-glow: rgba(88, 166, 255, 0.15);
+
+      /* Decisions - Richer, higher-contrast WAF palette */
+      --deny-fg: #ff7b72;
+      --deny-solid: #f85149;
+      --deny-bg: rgba(248, 81, 73, 0.16);
+      --deny-border: rgba(248, 81, 73, 0.5);
+      --deny-glow: rgba(248, 81, 73, 0.08);
+      --deny-edge: rgba(248, 81, 73, 0.45);
+
+      --ask-fg: #f7b93e;
+      --ask-solid: #d29922;
+      --ask-bg: rgba(210, 153, 34, 0.17);
+      --ask-border: rgba(247, 185, 62, 0.5);
+      --ask-glow: rgba(210, 153, 34, 0.08);
+      --ask-edge: rgba(247, 185, 62, 0.45);
+
+      --allow-fg: #56d364;
+      --allow-solid: #2ea043;
+      --allow-bg: rgba(46, 160, 67, 0.16);
+      --allow-border: rgba(86, 211, 100, 0.45);
+      --allow-glow: rgba(46, 160, 67, 0.08);
+
+      /* Semantic Accents for Kinds, Tools, Isolation & Injection */
+      --kind-path-fg: #39d0d8;
+      --kind-path-bg: rgba(57, 208, 216, 0.13);
+      --kind-path-border: rgba(57, 208, 216, 0.4);
+      --kind-path-glow: rgba(57, 208, 216, 0.08);
+
+      --kind-cmd-fg: #c297ff;
+      --kind-cmd-bg: rgba(163, 113, 247, 0.15);
+      --kind-cmd-border: rgba(194, 151, 255, 0.42);
+
+      --kind-tool-fg: #79c0ff;
+      --kind-tool-bg: rgba(56, 139, 253, 0.15);
+      --kind-tool-border: rgba(121, 192, 255, 0.42);
+
+      --inj-fg: #ff80c8;
+      --inj-solid: #db61a2;
+      --inj-bg: rgba(219, 97, 162, 0.18);
+      --inj-border: rgba(255, 128, 200, 0.52);
+
+      --redact-fg: #ffa657;
+      --redact-bg: rgba(255, 166, 87, 0.15);
+      --redact-border: rgba(255, 166, 87, 0.45);
+
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    }
+
+    [data-theme="light"] {
+      --bg-canvas: #f3f6f9;
+      --bg-surface: #ffffff;
+      --bg-elevated: #eef2f6;
+      --bg-hover: #e5ebf1;
+      --bg-selected: #d8e8ff;
+      --bg-code: #f4f7fa;
+      --border-subtle: #d0d7de;
+      --border-strong: #9ca6b2;
+      --border-control: #6e7781;
+      --border-focus: #0969da;
+
+      --text-primary: #1b1f24;
+      --text-secondary: #4d5761;
+      --text-muted: #57606a;
+
+      --accent-blue: #0550ae;
+      --accent-blue-bg: rgba(9, 105, 218, 0.11);
+      --accent-blue-border: rgba(9, 105, 218, 0.4);
+      --brand-glow: rgba(9, 105, 218, 0.18);
+
+      /* Decisions - WCAG AA compliant on light */
+      --deny-fg: #b62324;
+      --deny-solid: #cf222e;
+      --deny-bg: #ffebe9;
+      --deny-border: #ff8182;
+      --deny-glow: rgba(207, 34, 46, 0.05);
+      --deny-edge: rgba(207, 34, 46, 0.5);
+
+      --ask-fg: #7d4e00;
+      --ask-solid: #9a6700;
+      --ask-bg: #fff8c5;
+      --ask-border: #d4a72c;
+      --ask-glow: rgba(154, 103, 0, 0.06);
+      --ask-edge: rgba(154, 103, 0, 0.5);
+
+      --allow-fg: #116329;
+      --allow-solid: #1a7f37;
+      --allow-bg: #dafbe1;
+      --allow-border: #4ac26b;
+      --allow-glow: rgba(26, 127, 55, 0.05);
+
+      --kind-path-fg: #055d67;
+      --kind-path-bg: #dff7f9;
+      --kind-path-border: #6bd7e2;
+      --kind-path-glow: rgba(5, 93, 103, 0.07);
+
+      --kind-cmd-fg: #5e309d;
+      --kind-cmd-bg: #f3ebff;
+      --kind-cmd-border: #c297ff;
+
+      --kind-tool-fg: #00628f;
+      --kind-tool-bg: #ddf4ff;
+      --kind-tool-border: #80ccff;
+
+      --inj-fg: #821d58;
+      --inj-solid: #bf3989;
+      --inj-bg: #ffeff7;
+      --inj-border: #f778ba;
+
+      --redact-fg: #8a3800;
+      --redact-bg: #fff1e5;
+      --redact-border: #ffa657;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg-canvas);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: var(--fs-body);
+      line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--border-focus);
+      outline-offset: 2px;
+    }
+    /* Inside a scrolling list the ring must sit inside the box, or the list clips it. */
+    .rule-row:focus-visible,
+    .event-toggle:focus-visible,
+    .rule-link-btn:focus-visible {
+      outline-offset: -2px;
+    }
+
+    button, select, input {
+      font-family: inherit;
+      font-size: inherit;
+      color: inherit;
+    }
+    /* Targets: 24px everywhere (WCAG 2.5.8), 44px on touch screens. */
+    button, select {
+      min-height: 24px;
+      min-width: 24px;
+    }
+    @media (pointer: coarse) {
+      button, select, .skip-link {
+        min-height: 44px;
+        min-width: 44px;
+      }
+    }
+
+    code {
+      font-family: var(--font-mono);
+      font-size: inherit;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+      color: var(--accent-blue);
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .skip-link {
+      position: absolute;
+      left: 8px;
+      top: 8px;
+      z-index: 20;
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 14px;
+      font-size: var(--fs-row);
+      font-weight: 600;
+      color: var(--text-primary);
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-control);
+      border-radius: 4px;
+      text-decoration: none;
+      transform: translateY(-300%);
+    }
+    .skip-link:focus {
+      transform: none;
+    }
+
+    /* Preview State Switcher (?states=1) */
+    .state-switcher {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 16px;
+      background: linear-gradient(90deg, var(--bg-elevated), var(--bg-surface));
+      border-bottom: 1px solid var(--border-strong);
+      font-size: var(--fs-meta);
+    }
+    .state-switcher.visible {
+      display: flex;
+      flex-wrap: wrap;
+    }
+    .state-switcher-label {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      color: var(--kind-path-fg);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .state-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    .state-btn {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-control);
+      color: var(--text-secondary);
+      padding: 3px 9px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: var(--fs-meta);
+      font-family: var(--font-mono);
+      transition: all 0.12s ease;
+    }
+    .state-btn:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+      border-color: var(--border-strong);
+    }
+    .state-btn[aria-pressed="true"] {
+      background: var(--accent-blue-bg);
+      border-color: var(--accent-blue);
+      color: var(--text-primary);
+      font-weight: 700;
+    }
+
+    /* Top Header */
+    .top-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      background: linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg-surface) 100%);
+      border-bottom: 1px solid var(--border-subtle);
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+    .brand-icon {
+      width: 24px;
+      height: 24px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      background: var(--accent-blue-bg);
+      border: 1px solid var(--accent-blue-border);
+      color: var(--accent-blue);
+      box-shadow: 0 0 12px var(--brand-glow);
+    }
+    .brand-title {
+      margin: 0;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: var(--fs-body);
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+    }
+    .brand-subtitle {
+      color: var(--text-secondary);
+      font-size: var(--fs-meta);
+      border-left: 1px solid var(--border-strong);
+      padding-left: 10px;
+    }
+    .header-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .data-source-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      font-weight: 600;
+      padding: 2px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--allow-border);
+      background: var(--allow-bg);
+      color: var(--allow-fg);
+    }
+    .data-source-pill.sample, .data-source-pill.offline {
+      border-color: var(--ask-border);
+      color: var(--ask-fg);
+      background: var(--ask-bg);
+    }
+    .readonly-hint {
+      font-size: var(--fs-meta);
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+    }
+    .theme-btn, .download-btn {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-control);
+      border-radius: 5px;
+      padding: 4px 10px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: var(--fs-meta);
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+    .download-btn {
+      background: var(--accent-blue-bg);
+      color: var(--accent-blue);
+      font-family: var(--font-mono);
+      font-weight: 600;
+    }
+    .theme-btn:hover, .download-btn:hover {
+      background: var(--bg-hover);
+      border-color: var(--accent-blue);
+    }
+
+    /* Alert Banner for degraded states */
+    .state-banner {
+      display: none;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      font-size: var(--fs-row);
+    }
+    .state-banner.visible {
+      display: flex;
+    }
+    .state-banner.critical {
+      background: var(--deny-bg);
+      border-bottom-color: var(--deny-border);
+      border-left: 4px solid var(--deny-solid);
+      color: var(--text-primary);
+    }
+    .state-banner.warning {
+      background: var(--ask-bg);
+      border-bottom-color: var(--ask-border);
+      border-left: 4px solid var(--ask-solid);
+      color: var(--text-primary);
+    }
+    .state-banner.info {
+      background: var(--accent-blue-bg);
+      border-bottom-color: var(--accent-blue-border);
+      border-left: 4px solid var(--accent-blue);
+      color: var(--text-primary);
+    }
+    .state-banner-content {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .state-banner-title {
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .state-banner-desc {
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      overflow-wrap: anywhere;
+    }
+
+    /* Posture Strip (5 Color-Accented Tiles) */
+    .posture-strip {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 1px;
+      background: var(--border-subtle);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    @media (max-width: 960px) {
+      .posture-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .posture-tile:last-child {
+        grid-column: 1 / -1;
+      }
+    }
+    .posture-tile {
+      background: var(--bg-surface);
+      padding: 11px 14px 10px 14px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      gap: 8px;
+      min-height: 96px;
+      min-width: 0;
+      position: relative;
+      border-top: 3px solid var(--border-strong);
+      transition: background 0.15s ease;
+    }
+    .posture-tile.tone-ok {
+      border-top-color: var(--allow-solid);
+      background: linear-gradient(180deg, var(--allow-glow) 0%, var(--bg-surface) 70%);
+    }
+    .posture-tile.tone-warn {
+      border-top-color: var(--ask-solid);
+      background: linear-gradient(180deg, var(--ask-glow) 0%, var(--bg-surface) 70%);
+    }
+    .posture-tile.tone-err {
+      border-top-color: var(--deny-solid);
+      background: linear-gradient(180deg, var(--deny-glow) 0%, var(--bg-surface) 70%);
+    }
+    .posture-tile.tone-cyan {
+      border-top-color: var(--kind-path-fg);
+      background: linear-gradient(180deg, var(--kind-path-glow) 0%, var(--bg-surface) 70%);
+    }
+    .posture-tile.tone-neutral {
+      border-top-color: var(--border-strong);
+    }
+
+    .tile-label {
+      font-size: var(--fs-meta);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-secondary);
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .tile-value-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+    .tile-value {
+      font-family: var(--font-mono);
+      font-size: var(--fs-value);
+      font-weight: 700;
+      line-height: 1.2;
+      display: inline-flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px 8px;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      color: var(--text-primary);
+      font-variant-numeric: tabular-nums;
+    }
+    .tile-sub {
+      margin-top: auto;
+      font-size: var(--fs-meta);
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .step-meter {
+      width: 100%;
+      height: 4px;
+      background: var(--bg-elevated);
+      border-radius: 99px;
+      overflow: hidden;
+      margin-top: 2px;
+      border: 1px solid var(--border-subtle);
+    }
+    .step-meter-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent-blue), var(--kind-path-fg));
+      border-radius: 99px;
+      transition: width 0.25s ease;
+    }
+    .step-meter-fill.warn {
+      background: linear-gradient(90deg, var(--ask-solid), var(--deny-solid));
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+    .status-dot.ok {
+      background: var(--allow-fg);
+      box-shadow: 0 0 8px var(--allow-fg);
+    }
+    .status-dot.warn {
+      background: var(--ask-fg);
+      box-shadow: 0 0 8px var(--ask-fg);
+    }
+    .status-dot.err {
+      background: var(--deny-fg);
+      box-shadow: 0 0 8px var(--deny-fg);
+    }
+    .status-dot.cyan {
+      background: var(--kind-path-fg);
+      box-shadow: 0 0 8px var(--kind-path-fg);
+    }
+    .status-dot.neutral {
+      background: var(--text-muted);
+    }
+
+    /* Decision Badges (Identical across rules and events) */
+    .decision-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 4px;
+      border: 1px solid transparent;
+      line-height: 1.2;
+      white-space: nowrap;
+      flex-shrink: 0;
+      letter-spacing: 0.02em;
+    }
+    .decision-badge svg {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+    }
+    .decision-badge.deny {
+      color: var(--deny-fg);
+      background: var(--deny-bg);
+      border-color: var(--deny-border);
+    }
+    .decision-badge.ask {
+      color: var(--ask-fg);
+      background: var(--ask-bg);
+      border-color: var(--ask-border);
+    }
+    .decision-badge.allow {
+      color: var(--allow-fg);
+      background: var(--allow-bg);
+      border-color: var(--allow-border);
+    }
+    .decision-badge.flagged {
+      color: var(--inj-fg);
+      background: var(--inj-bg);
+      border-color: var(--inj-border);
+    }
+    .row-note {
+      display: block;
+      margin-top: 3px;
+      font-size: var(--fs-meta);
+      line-height: 1.25;
+      color: var(--text-secondary);
+    }
+    .rule-text {
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      color: var(--text-secondary);
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Main 2-Column Workspace */
+    .workspace {
+      display: grid;
+      grid-template-columns: 36% 64%;
+      min-height: calc(100vh - 220px);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .rules-pane, .events-pane {
+      min-width: 0;
+    }
+    @media (max-width: 1024px) {
+      .workspace {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    /* Left Column: Rules Panel */
+    .rules-pane {
+      border-right: 1px solid var(--border-subtle);
+      background: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+      max-height: calc(100vh - 210px);
+    }
+    @media (max-width: 1024px) {
+      .rules-pane {
+        max-height: 480px;
+        border-right: none;
+        border-bottom: 1px solid var(--border-subtle);
+      }
+    }
+    @media (max-width: 768px) {
+      .events-pane {
+        order: -1;
+      }
+      .rules-pane {
+        border-bottom: none;
+        border-top: 1px solid var(--border-subtle);
+      }
+    }
+    .rules-body {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+    }
+    .pane-header {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      background: var(--bg-elevated);
+      flex-wrap: wrap;
+    }
+    .pane-title {
+      margin: 0;
+      font-weight: 700;
+      font-size: var(--fs-meta);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-primary);
+    }
+    .pane-title-text {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .pane-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: transparent;
+      border: 1px solid var(--border-control);
+      border-radius: 5px;
+      padding: 2px 10px;
+      cursor: pointer;
+      font-size: var(--fs-meta);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-primary);
+    }
+    .pane-toggle:hover {
+      background: var(--bg-hover);
+    }
+    .pane-toggle svg {
+      width: 12px;
+      height: 12px;
+      transition: transform 0.12s ease;
+    }
+    .pane-toggle[aria-expanded="true"] svg {
+      transform: rotate(90deg);
+    }
+    .count-pill {
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      font-weight: 700;
+      padding: 1px 7px;
+      border-radius: 99px;
+      background: var(--accent-blue-bg);
+      border: 1px solid var(--accent-blue-border);
+      color: var(--accent-blue);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0;
+    }
+    .edit-file-hint {
+      font-size: var(--fs-meta);
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .rules-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      overflow-y: auto;
+      flex: 1;
+      min-height: 0;
+    }
+    .rule-item {
+      padding: 8px 14px 9px 11px;
+      border-bottom: 1px solid var(--border-subtle);
+      border-left: 3px solid transparent;
+      cursor: pointer;
+      transition: background 0.1s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      min-width: 0;
+    }
+    .rule-item.rule-deny {
+      border-left-color: var(--deny-edge);
+    }
+    .rule-item.rule-ask {
+      border-left-color: var(--ask-edge);
+    }
+    .rule-item:hover {
+      background: var(--bg-hover);
+    }
+    .rule-item.active {
+      background: var(--bg-selected);
+      border-left-color: var(--accent-blue);
+    }
+    .rule-top {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+    .rule-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      padding: 1px 6px 1px 2px;
+      margin-left: -2px;
+      background: transparent;
+      border: 0;
+      border-radius: 4px;
+      cursor: pointer;
+      text-align: left;
+    }
+    .rule-id {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      font-size: var(--fs-row);
+      color: var(--text-primary);
+      overflow-wrap: anywhere;
+    }
+
+    /* Semantic Kind Badges */
+    .kind-badge {
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 3px;
+      border: 1px solid var(--border-subtle);
+      white-space: nowrap;
+    }
+    .kind-badge.kind-path {
+      color: var(--kind-path-fg);
+      background: var(--kind-path-bg);
+      border-color: var(--kind-path-border);
+    }
+    .kind-badge.kind-command {
+      color: var(--kind-cmd-fg);
+      background: var(--kind-cmd-bg);
+      border-color: var(--kind-cmd-border);
+    }
+    .kind-badge.kind-tool {
+      color: var(--kind-tool-fg);
+      background: var(--kind-tool-bg);
+      border-color: var(--kind-tool-border);
+    }
+
+    .origin-badge, .shell-note-badge {
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      padding: 1px 5px;
+      border-radius: 3px;
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+    .shell-note-badge {
+      border-color: var(--ask-border);
+      color: var(--ask-fg);
+      background: var(--ask-bg);
+      font-weight: 600;
+    }
+    .rule-hit-count {
+      margin-left: auto;
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      color: var(--text-muted);
+      padding: 1px 6px;
+      border-radius: 99px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+      font-variant-numeric: tabular-nums;
+    }
+    .rule-hit-count.has-hits {
+      color: var(--text-primary);
+      border-color: var(--border-strong);
+      font-weight: 600;
+    }
+    .rule-reason {
+      font-size: var(--fs-row);
+      color: var(--text-secondary);
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .rule-item.active .rule-reason {
+      white-space: normal;
+      color: var(--text-primary);
+    }
+    .rule-details {
+      display: none;
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px dashed var(--border-strong);
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      color: var(--text-secondary);
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+    .rule-item.active .rule-details {
+      display: flex;
+    }
+    .rule-pattern-list {
+      margin: 0;
+      padding-left: 14px;
+      word-break: break-all;
+      color: var(--kind-path-fg);
+    }
+
+    /* Right Column: Live Event Feed */
+    .events-pane {
+      background: var(--bg-canvas);
+      display: flex;
+      flex-direction: column;
+      max-height: calc(100vh - 210px);
+    }
+    @media (max-width: 1024px) {
+      .events-pane {
+        max-height: none;
+      }
+    }
+
+    /* WAF Telemetry Distribution Bar */
+    .telemetry-strip {
+      padding: 8px 14px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .telemetry-pills {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .telemetry-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 4px;
+      border: 1px solid var(--border-control);
+      background: var(--bg-elevated);
+      cursor: pointer;
+      font-variant-numeric: tabular-nums;
+    }
+    .telemetry-pill:hover {
+      border-color: var(--border-focus);
+    }
+    .telemetry-pill[aria-pressed="true"] {
+      border-color: var(--border-focus);
+      box-shadow: inset 0 0 0 1px var(--border-focus), inset 0 2px 5px rgba(0, 0, 0, 0.28);
+    }
+    .telemetry-pill.deny-pill {
+      color: var(--deny-fg);
+      background: var(--deny-bg);
+    }
+    .telemetry-pill.ask-pill {
+      color: var(--ask-fg);
+      background: var(--ask-bg);
+    }
+    .telemetry-pill.allow-pill {
+      color: var(--allow-fg);
+      background: var(--allow-bg);
+    }
+    .telemetry-pill.inj-pill {
+      color: var(--inj-fg);
+      background: var(--inj-bg);
+    }
+    .telemetry-legend {
+      margin: 0;
+      font-size: var(--fs-meta);
+      color: var(--text-secondary);
+    }
+    .distribution-bar {
+      height: 5px;
+      width: 100%;
+      background: var(--bg-elevated);
+      border-radius: 99px;
+      overflow: hidden;
+      display: flex;
+      gap: 2px;
+    }
+    .dist-seg-deny { background: var(--deny-solid); height: 100%; }
+    .dist-seg-ask { background: var(--ask-solid); height: 100%; }
+    .dist-seg-allow { background: var(--allow-solid); height: 100%; }
+    .dist-seg-flagged { background: var(--inj-solid); height: 100%; }
+
+    /* Filter Bar */
+    .filter-bar {
+      padding: 8px 14px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .filter-label {
+      font-size: var(--fs-meta);
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+    }
+    .filter-select {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-control);
+      border-radius: 4px;
+      padding: 3px 6px;
+      font-size: var(--fs-row);
+      font-family: var(--font-mono);
+      color: var(--text-primary);
+      max-width: 100%;
+    }
+    .clear-filters-btn {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-control);
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: var(--fs-meta);
+      font-family: var(--font-mono);
+      cursor: pointer;
+      color: var(--text-secondary);
+    }
+    .clear-filters-btn:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+      border-color: var(--accent-blue);
+    }
+    .active-rule-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 0 0 8px;
+      border-radius: 4px;
+      background: var(--accent-blue-bg);
+      border: 1px solid var(--accent-blue);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }
+    .active-rule-chip button {
+      background: none;
+      border: none;
+      color: inherit;
+      cursor: pointer;
+      padding: 0 6px;
+      font-weight: bold;
+      font-size: var(--fs-row);
+    }
+
+    /* Events Table Header & Rows */
+    .events-pane {
+      --ev-cols: 98px 96px 150px minmax(0, 1fr) 150px;
+    }
+    .events-header-row {
+      display: grid;
+      grid-template-columns: var(--ev-cols);
+      gap: 10px;
+      padding: 6px 14px;
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border-subtle);
+      font-size: var(--fs-meta);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-secondary);
+    }
+    @media (max-width: 768px) {
+      .events-header-row {
+        display: none;
+      }
+    }
+    .events-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      overflow-y: auto;
+      flex: 1;
+      min-height: 0;
+    }
+    .event-entry {
+      border-bottom: 1px solid var(--border-subtle);
+      background: var(--bg-surface);
+      border-left: 3px solid transparent;
+    }
+    .event-entry.ev-deny {
+      border-left-color: var(--deny-solid);
+    }
+    .event-entry.ev-ask {
+      border-left-color: var(--ask-solid);
+    }
+    .event-entry.ev-allow {
+      border-left-color: var(--allow-solid);
+    }
+    .event-entry.ev-flagged {
+      border-left-color: var(--inj-solid);
+    }
+    .event-entry:hover {
+      background: var(--bg-hover);
+    }
+    .event-summary {
+      display: grid;
+      grid-template-columns: var(--ev-cols);
+      gap: 10px;
+      padding: 6px 14px 6px 11px;
+      align-items: center;
+      cursor: pointer;
+    }
+    .event-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-self: start;
+      gap: 6px;
+      padding: 2px 8px 2px 6px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-control);
+      border-radius: 4px;
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      font-size: var(--fs-row);
+      white-space: nowrap;
+      cursor: pointer;
+      font-variant-numeric: tabular-nums;
+    }
+    .event-toggle:hover {
+      border-color: var(--border-focus);
+      color: var(--text-primary);
+    }
+    .event-toggle svg {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+      transition: transform 0.12s ease;
+    }
+    .event-toggle[aria-expanded="true"] svg {
+      transform: rotate(90deg);
+    }
+    .event-time {
+      font-family: var(--font-mono);
+      font-size: var(--fs-row);
+      white-space: nowrap;
+    }
+    @media (max-width: 768px) {
+      .event-summary {
+        grid-template-columns: auto auto minmax(0, 1fr) auto;
+        grid-template-areas:
+          "tg dc tl tl"
+          "tr tr tr rl";
+        gap: 6px 8px;
+        padding: 8px 12px 8px 9px;
+      }
+      .event-toggle { grid-area: tg; }
+      .ev-dec { grid-area: dc; }
+      .ev-tool { grid-area: tl; min-width: 0; }
+      .event-target-cell { grid-area: tr; }
+      .event-rule-cell { grid-area: rl; }
+    }
+
+    /* Syntax-tinted Tool Pills */
+    .event-tool-pill {
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1.4;
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 4px;
+      border: 1px solid var(--border-subtle);
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .event-tool-pill.tool-shell {
+      color: var(--kind-cmd-fg);
+      background: var(--kind-cmd-bg);
+      border-color: var(--kind-cmd-border);
+    }
+    .event-tool-pill.tool-file {
+      color: var(--kind-path-fg);
+      background: var(--kind-path-bg);
+      border-color: var(--kind-path-border);
+    }
+    .event-tool-pill.tool-web {
+      color: var(--kind-tool-fg);
+      background: var(--kind-tool-bg);
+      border-color: var(--kind-tool-border);
+    }
+    .event-tool-pill.tool-mcp {
+      color: var(--inj-fg);
+      background: var(--inj-bg);
+      border-color: var(--inj-border);
+    }
+
+    .event-target-cell {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+    .event-target {
+      font-family: var(--font-mono);
+      font-size: var(--fs-row);
+      color: var(--text-primary);
+      background: var(--bg-code);
+      padding: 2px 7px;
+      border-radius: 4px;
+      border: 1px solid var(--border-subtle);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+    .injection-flag, .redacted-flag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 4px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .injection-flag {
+      background: var(--inj-bg);
+      border: 1px solid var(--inj-border);
+      color: var(--inj-fg);
+    }
+    .redacted-flag {
+      background: var(--redact-bg);
+      border: 1px solid var(--redact-border);
+      color: var(--redact-fg);
+    }
+    .event-rule-cell {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      min-width: 0;
+    }
+    .rule-link-btn {
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      font-weight: 600;
+      color: var(--accent-blue);
+      background: var(--accent-blue-bg);
+      border: 1px solid var(--border-control);
+      padding: 2px 7px;
+      border-radius: 4px;
+      cursor: pointer;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .rule-link-btn:hover {
+      border-color: var(--accent-blue);
+      filter: brightness(1.15);
+    }
+
+    /* Expanded Event Drawer */
+    .event-expanded {
+      display: none;
+      padding: 10px 14px 12px 14px;
+      background: var(--bg-code);
+      border-top: 1px dashed var(--border-strong);
+      font-size: var(--fs-meta);
+    }
+    .event-entry.open .event-expanded {
+      display: block;
+    }
+    .expanded-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 8px;
+      margin-bottom: 8px;
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+    }
+    .kv-box {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      padding: 6px 8px;
+      border-radius: 4px;
+      min-width: 0;
+    }
+    .kv-label {
+      font-size: var(--fs-meta);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-secondary);
+      display: block;
+    }
+    .kv-val {
+      color: var(--text-primary);
+      word-break: break-all;
+    }
+    .detail-block {
+      margin-top: 8px;
+    }
+    .detail-block-label {
+      font-size: var(--fs-meta);
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 3px;
+      font-family: var(--font-mono);
+    }
+    .code-pre {
+      margin: 0;
+      padding: 8px 10px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: var(--fs-row);
+      white-space: pre-wrap;
+      word-break: break-all;
+      color: var(--text-primary);
+    }
+    .warning-box {
+      margin-top: 8px;
+      padding: 8px 10px;
+      background: var(--inj-bg);
+      border: 1px solid var(--inj-border);
+      border-radius: 4px;
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      overflow-wrap: anywhere;
+    }
+
+    /* Empty / Designed State Card inside Feed */
+    .empty-feed-state {
+      list-style: none;
+      margin: 24px 16px;
+      padding: 24px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      border-left: 4px solid var(--accent-blue);
+      border-radius: 6px;
+      text-align: left;
+      max-width: 620px;
+    }
+    .empty-feed-title {
+      font-size: var(--fs-body);
+      font-weight: 700;
+      margin: 0 0 6px 0;
+      font-family: var(--font-mono);
+      color: var(--text-primary);
+    }
+    .empty-feed-desc {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: var(--fs-row);
+    }
+
+    /* Bottom Limits Panel */
+    .limits-footer {
+      background: var(--bg-surface);
+      padding: 12px 16px;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+    @media (max-width: 768px) {
+      .limits-footer {
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+    }
+    .limits-title {
+      margin: 0;
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--ask-fg);
+      padding: 4px 9px;
+      border: 1px solid var(--ask-border);
+      border-radius: 4px;
+      background: var(--ask-bg);
+      white-space: nowrap;
+    }
+    .limits-items {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+    @media (max-width: 960px) {
+      .limits-items {
+        grid-template-columns: 1fr;
+      }
+    }
+    .limit-card {
+      font-size: var(--fs-row);
+      color: var(--text-secondary);
+      border-left: 3px solid var(--border-strong);
+      padding-left: 10px;
+      min-width: 0;
+    }
+    .limit-card.limit-shell {
+      border-left-color: var(--ask-solid);
+    }
+    .limit-card.limit-inj {
+      border-left-color: var(--inj-solid);
+    }
+    .limit-card.limit-iso {
+      border-left-color: var(--kind-path-fg);
+    }
+    .limit-card strong {
+      color: var(--text-primary);
+      display: block;
+      font-family: var(--font-mono);
+      font-size: var(--fs-row);
+      margin-bottom: 2px;
+    }
+  </style>
+</head>
+<body>
+
+  <a class="skip-link" href="#events-heading" id="skip-link">Skip to security events</a>
+
+  <!-- Preview-only State Switcher (shown only when ?states=1 is in URL) -->
+  <nav id="state-switcher" class="state-switcher" aria-label="Operational state switcher">
+    <div class="state-switcher-label">
+      <span>PREVIEW STATES (?states=1)</span>
+    </div>
+    <div id="state-buttons" class="state-buttons"></div>
+  </nav>
+
+  <!-- Header -->
+  <header class="top-header">
+    <div class="brand">
+      <span class="brand-icon" aria-hidden="true">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M8 1.5L2.5 4v4.2c0 3.4 2.3 5.7 5.5 6.3 3.2-.6 5.5-2.9 5.5-6.3V4L8 1.5z"/>
+        </svg>
+      </span>
+      <h1 class="brand-title">agent-guardrails</h1>
+      <span class="brand-subtitle">Claude Code tool-call guard</span>
+    </div>
+    <div class="header-meta">
+      <span id="data-source-badge" class="data-source-pill sample">sample data</span>
+      <span class="readonly-hint">Read-only console · Edit rules in <code>policy.json</code></span>
+      <button id="download-html-btn" type="button" class="download-btn" title="Download a clean copy of this page. It holds no log data.">
+        <span>⬇ Download index.html</span>
+      </button>
+      <button id="theme-toggle" type="button" class="theme-btn">
+        <span id="theme-label">Switch to light theme</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- State Banner (For fail-closed, uninstalled, isolation tripwire, step-cap) -->
+  <section id="state-banner" class="state-banner" role="status" aria-live="polite">
+    <div class="state-banner-content">
+      <div id="state-banner-title" class="state-banner-title"></div>
+      <div id="state-banner-desc" class="state-banner-desc"></div>
+    </div>
+  </section>
+
+  <!-- Posture Strip (5 Tiles) -->
+  <section class="posture-strip" aria-labelledby="posture-heading">
+    <h2 id="posture-heading" class="sr-only">Guard posture</h2>
+    <div id="tile-plugin" class="posture-tile tone-ok">
+      <div class="tile-label">
+        <span>Plugin</span>
+        <span id="dot-plugin" class="status-dot ok" aria-hidden="true"></span>
+      </div>
+      <div class="tile-value-row">
+        <span id="val-plugin" class="tile-value">Loaded</span>
+      </div>
+      <div id="sub-plugin" class="tile-sub">PreToolUse &amp; PostToolUse hooks active</div>
+    </div>
+
+    <div id="tile-policy" class="posture-tile tone-ok">
+      <div class="tile-label">
+        <span>Policy</span>
+        <span id="dot-policy" class="status-dot ok" aria-hidden="true"></span>
+      </div>
+      <div class="tile-value-row">
+        <span id="val-policy" class="tile-value">Loaded</span>
+      </div>
+      <div id="sub-policy" class="tile-sub">20 rules active (v1)</div>
+    </div>
+
+    <div id="tile-isolation" class="posture-tile tone-neutral">
+      <div class="tile-label">
+        <span>Isolation</span>
+        <span id="dot-isolation" class="status-dot neutral" aria-hidden="true"></span>
+      </div>
+      <div class="tile-value-row">
+        <span id="val-isolation" class="tile-value">Off</span>
+      </div>
+      <div id="sub-isolation" class="tile-sub">Shell reads gated by ask rules</div>
+    </div>
+
+    <div id="tile-steps" class="posture-tile tone-ok">
+      <div class="tile-label">
+        <span>Steps this session</span>
+        <span id="dot-steps" class="status-dot ok" aria-hidden="true"></span>
+      </div>
+      <div class="tile-value-row">
+        <span id="val-steps" class="tile-value">0 of 200</span>
+      </div>
+      <div class="step-meter" aria-hidden="true">
+        <div id="step-meter-fill" class="step-meter-fill" style="width: 2%;"></div>
+      </div>
+      <div id="sub-steps" class="tile-sub">No active session</div>
+    </div>
+
+    <div id="tile-last" class="posture-tile tone-neutral">
+      <div class="tile-label">
+        <span>Last event</span>
+        <span id="dot-last" class="status-dot neutral" aria-hidden="true"></span>
+      </div>
+      <div class="tile-value-row">
+        <span id="val-last" class="tile-value">—</span>
+      </div>
+      <div id="sub-last" class="tile-sub">—</div>
+    </div>
+  </section>
+
+  <!-- Main Workspace: Left 36% Rules, Right 64% Live Event Feed -->
+  <main class="workspace">
+    <div id="live-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+
+    <!-- Left Column: Policy Rules -->
+    <section class="rules-pane" aria-labelledby="rules-heading">
+      <div class="pane-header">
+        <h2 id="rules-heading" class="pane-title">
+          <span id="rules-title-text" class="pane-title-text">
+            <span>Policy rules</span>
+            <span class="count-pill rules-count">20</span>
+          </span>
+          <button id="rules-toggle" type="button" class="pane-toggle" aria-controls="rules-body" hidden>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5.5 3l5 5-5 5"/></svg>
+            <span>Policy rules</span>
+            <span class="count-pill rules-count">20</span>
+          </button>
+        </h2>
+        <span class="edit-file-hint">To change a rule, edit <code>policy.json</code></span>
+      </div>
+      <div id="rules-body" class="rules-body">
+        <ul id="rules-list" class="rules-list"></ul>
+      </div>
+    </section>
+
+    <!-- Right Column: Live Security Events Feed -->
+    <section class="events-pane" aria-labelledby="events-heading">
+      <div class="pane-header">
+        <h2 id="events-heading" class="pane-title" tabindex="-1">
+          <span>Security events (newest first)</span>
+          <span id="events-count" class="count-pill">0</span>
+        </h2>
+        <div id="active-rule-indicator"></div>
+      </div>
+
+      <!-- WAF Telemetry Distribution Strip -->
+      <div class="telemetry-strip">
+        <div id="telemetry-pills" class="telemetry-pills" role="group" aria-label="Quick filters"></div>
+        <p class="telemetry-legend">Deny: stopped before it ran · Ask: needed a yes before it ran · Allow: ran · Flagged: ran, and its reply matched an injection phrase (logged, not blocked)</p>
+        <div id="distribution-bar" class="distribution-bar" aria-hidden="true"></div>
+      </div>
+
+      <!-- Filter Bar -->
+      <div class="filter-bar" role="group" aria-label="Event filters">
+        <div class="filter-group">
+          <label class="filter-label" for="filter-decision">Decision:</label>
+          <select id="filter-decision" class="filter-select">
+            <option value="all">All decisions</option>
+            <option value="deny">Deny</option>
+            <option value="ask">Ask</option>
+            <option value="allow">Allow</option>
+            <option value="flagged">Flagged</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label" for="filter-rule">Rule:</label>
+          <select id="filter-rule" class="filter-select">
+            <option value="all">All rules</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label" for="filter-tool">Tool:</label>
+          <select id="filter-tool" class="filter-select">
+            <option value="all">All tools</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label" for="filter-session">Session:</label>
+          <select id="filter-session" class="filter-select">
+            <option value="all">All sessions</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label class="filter-label" for="filter-signal">Signal:</label>
+          <select id="filter-signal" class="filter-select">
+            <option value="all">All signals</option>
+            <option value="injection">Injection warnings</option>
+            <option value="redacted">Key redacted</option>
+          </select>
+        </div>
+
+        <button id="clear-filters" type="button" class="clear-filters-btn">Reset filters</button>
+      </div>
+
+      <div class="events-header-row" aria-hidden="true">
+        <span>Time</span>
+        <span>Decision</span>
+        <span>Tool</span>
+        <span>Target / Signals</span>
+        <span style="text-align:right;">Rule</span>
+      </div>
+
+      <ul id="events-list" class="events-list"></ul>
+    </section>
+  </main>
+
+  <!-- Limits Panel -->
+  <footer class="limits-footer" aria-labelledby="limits-heading">
+    <h2 id="limits-heading" class="limits-title">Known limits</h2>
+    <div class="limits-items">
+      <div class="limit-card limit-shell">
+        <strong>Shell commands are asked, never denied</strong>
+        Shell text can be respelled in ways no regex rule matches. Path or command <code>deny</code> rules on shell tools (<code>Bash</code>, <code>PowerShell</code>, <code>Monitor</code>) act as <code>ask</code> so a human confirms.
+      </div>
+      <div class="limit-card limit-inj">
+        <strong>Injection phrases are flagged, not blocked</strong>
+        Tool outputs are scanned for 6 prompt-injection markers. A hit is logged, Claude is told the result is data, and you see a notice. A hit from <code>WebFetch</code>, <code>WebSearch</code> or an MCP read marks the session: shell, web and MCP steps ask until it ends. Reworded text is not seen.
+      </div>
+      <div class="limit-card limit-iso">
+        <strong>What Isolation adds (and its tripwire)</strong>
+        Enabling <code>"isolation": true</code> in <code>policy.json</code> uses Claude Code's OS sandbox to block shell reads of secret paths outright. If a project setting widens the sandbox, the isolation tripwire refuses every shell call.
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      "use strict";
+
+      /* A clean copy of this page, taken before any log data is rendered. Download exports this,
+         never the live page. The theme attribute is dropped so the saved file follows its viewer. */
+      var PRISTINE = (function () {
+        var clone = document.documentElement.cloneNode(true);
+        clone.removeAttribute("data-theme");
+        return "<!DOCTYPE html>\n" + clone.outerHTML;
+      })();
+
+      /* =====================================================================
+         1. REAL SHIPPED POLICY DATA & AUDIT LOG SAMPLE
+         Note: In inline <script> blocks, "</" is escaped as "<\/" so the HTML
+         parser never prematurely closes the <script> tag on hostile log lines!
+         ===================================================================== */
+      var SHIPPED_RULE_IDS = {
+        "deny-env-files": true,
+        "deny-key-files": true,
+        "deny-credential-dirs": true,
+        "deny-prod-config": true,
+        "deny-force-push": true,
+        "ask-rm-recursive": true,
+        "ask-git-push": true,
+        "ask-git-reset-hard": true,
+        "ask-terraform-apply": true,
+        "ask-kubectl-change": true,
+        "ask-vercel-prod": true,
+        "ask-publish": true,
+        "ask-git-clean": true,
+        "ask-find-delete": true,
+        "ask-python-delete": true,
+        "ask-aws-change": true,
+        "ask-gh-write": true,
+        "ask-docker-push": true,
+        "ask-helm-change": true,
+        "ask-mcp-write": true
+      };
+
+      var SAMPLE_POLICY = {
+        "version": 1,
+        "isolation": false,
+        "rules": [
+          {
+            "id": "deny-env-files",
+            "decision": "deny",
+            "kind": "path",
+            "match": [".env*", "*.env"],
+            "except": ["*.example", "*.sample", "*.template"],
+            "reason": "Environment files hold secrets. Claude may not read or touch them."
+          },
+          {
+            "id": "deny-key-files",
+            "decision": "deny",
+            "kind": "path",
+            "match": ["*.pem", "*.key", "id_rsa*", "id_ed25519*"],
+            "except": ["*.pub"],
+            "reason": "Private key files are off limits."
+          },
+          {
+            "id": "deny-credential-dirs",
+            "decision": "deny",
+            "kind": "path",
+            "match": ["*/.aws", "*/.aws/*", "*/.ssh", "*/.ssh/*", "*/.kube/config", "*/.docker/config.json",
+                      ".netrc", ".git-credentials", ".npmrc", ".pypirc", "*/gh/hosts.yml",
+                      "*/.config/gcloud", "*/.config/gcloud/*", "application_default_credentials.json"],
+            "reason": "Credential files and folders (cloud, SSH, git, package registries) are off limits."
+          },
+          {
+            "id": "deny-prod-config",
+            "decision": "deny",
+            "kind": "path",
+            "match": ["*/prod/*", "*/production/*", "*.prod.yaml", "*.prod.yml", "*.prod.json", "*.prod.tfvars"],
+            "project_relative": true,
+            "reason": "Production config is off limits. Use a human-run process for production."
+          },
+          {
+            "id": "deny-force-push",
+            "decision": "deny",
+            "kind": "command",
+            "match": ["\\bgit(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+push\\b(?:(?!\\bgit(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+push\\b)[^\\n;&|])*(?:\\s--force(?:-with-lease)?\\b|\\s-[a-zA-Z]*f[a-zA-Z]*(?=[\\s;&|)]|$)|\\s\\+\\S)"],
+            "reason": "Force pushes rewrite shared history."
+          },
+          {
+            "id": "ask-rm-recursive",
+            "decision": "ask",
+            "kind": "command",
+            "match": ["\\brm\\s+(?:(?!\\S*\\brm\\s)\\S+\\s+)*?(?:-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\\b"],
+            "reason": "Recursive delete. Confirm the path."
+          },
+          {
+            "id": "ask-git-push",
+            "decision": "ask",
+            "kind": "command",
+            "match": ["\\bgit(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+push\\b"],
+            "reason": "A push publishes commits. Confirm the branch."
+          },
+          {
+            "id": "ask-git-reset-hard",
+            "decision": "ask",
+            "kind": "command",
+            "match": ["\\bgit(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+reset\\b(?:(?!\\bgit\\s)[^\\n;&|])*\\s--hard\\b"],
+            "reason": "A hard reset throws away uncommitted work."
+          },
+          {
+            "id": "ask-terraform-apply",
+            "decision": "ask",
+            "kind": "command",
+            "match": ["\\bterraform(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+(?:apply|destroy)\\b"],
+            "reason": "Terraform changes real infrastructure."
+          },
+          {
+            "id": "ask-kubectl-change",
+            "decision": "ask",
+            "kind": "command",
+            "match": ["\\bkubectl(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+(?:apply|delete)\\b"],
+            "reason": "kubectl changes a live cluster."
+          },
+          {
+            "id": "ask-vercel-prod",
+            "decision": "ask",
+            "kind": "command",
+            "match": ["\\bvercel\\b(?:(?!\\bvercel\\b)[^\\n;&|])*(?:--prod\\b|--target(?:=|[ \\t]+)production\\b)"],
+            "reason": "This deploys to production."
+          },
+          {
+            "id": "ask-publish",
+            "decision": "ask",
+            "kind": "command",
+            "match": ["\\b(?:npm|pnpm|yarn)(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+publish\\b", "\\btwine(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+upload\\b", "\\bcargo(?:[ \\t]+[-+][^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+publish\\b", "\\buv(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+publish\\b", "\\bgem(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+push\\b"],
+            "reason": "Publishing a package is public and hard to undo."
+          },
+          {
+            "id": "ask-git-clean",
+            "decision": "ask",
+            "kind": "command",
+            "match": ["\\bgit(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+clean\\b(?!(?:(?!\\bgit\\s)[^\\n;&|])*\\s(?:--dry-run\\b|-[a-zA-Z]*n[a-zA-Z]*(?=[\\s;&|)]|$)))(?:(?!\\bgit\\s)[^\\n;&|])*\\s(?:--force\\b|-[a-zA-Z]*f[a-zA-Z]*(?=[\\s;&|)]|$))"],
+            "reason": "git clean -f deletes untracked files for good."
+          },
+          {
+            "id": "ask-find-delete",
+            "decision": "ask",
+            "kind": "command",
+            "match": ["\\bfind(?=\\s)(?:(?!\\bfind\\s)[^\\n;&|])*\\s-(?:delete|exec(?:dir)?[ \\t]+(?:\\S*/)?rm\\b)"],
+            "reason": "find with -delete or -exec rm deletes every file it finds."
+          },
+          {
+            "id": "ask-python-delete",
+            "decision": "ask",
+            "kind": "command",
+            "match": ["\\bpython[0-9.]*(?:[ \\t]+-[^\\s;&|]*){0,4}?[ \\t]+-c\\b(?:(?!\\bpython[0-9.]*[ \\t])[\\s\\S])*?\\b(?:rmtree|unlink|rmdir|removedirs|os\\s*\\.\\s*remove)\\b"],
+            "reason": "A python -c one-liner deletes files. Confirm the path."
+          },
+          {
+            "id": "ask-aws-change",
+            "decision": "ask",
+            "kind": "command",
+            "match": ["\\baws(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+(?:s3(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,3}\\s+(?:rm|cp|mv|sync)\\b|[a-z0-9-]+(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,3}\\s+(?:delete|put|create|update|terminate)-[a-z])"],
+            "reason": "This aws command changes or deletes cloud resources or files."
+          },
+          {
+            "id": "ask-gh-write",
+            "decision": "ask",
+            "kind": "command",
+            "match": ["\\bgh(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+(?:pr\\s+merge|release\\s+(?:create|delete)|repo\\s+delete)\\b"],
+            "reason": "gh merges, releases or deletes on GitHub, which is public and hard to undo."
+          },
+          {
+            "id": "ask-docker-push",
+            "decision": "ask",
+            "kind": "command",
+            "match": ["\\bdocker(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+(?:(?:image|manifest)\\s+|compose(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+)?push\\b"],
+            "reason": "docker push publishes an image."
+          },
+          {
+            "id": "ask-helm-change",
+            "decision": "ask",
+            "kind": "command",
+            "match": ["\\bhelm(?:[ \\t]+-[^\\s;&|]*(?:[ \\t]+[^\\s\\-;&|][^\\s;&|]*)?){0,8}\\s+(?:install|upgrade|uninstall|delete|rollback)\\b"],
+            "reason": "helm changes a live cluster."
+          },
+          {
+            "id": "ask-mcp-write",
+            "decision": "ask",
+            "kind": "tool",
+            "match": ["^mcp__(?:(?!__).)+__(?:|.*?(?:[_-]|(?-i:(?<=[a-z0-9])(?=[A-Z]))))(?:send|delete)", "^mcp__(?:(?!__).)+__(?!(?:get|list|read|fetch|search|query|find|describe|view|show|check|count|browse|lookup)(?:[_-]|(?=(?-i:[A-Z])))(?:post|pay|charge|transfer))(?:|.*?(?:[_-]|(?-i:(?<=[a-z0-9])(?=[A-Z]))))(?:post|pay|charge|transfer)"],
+            "reason": "This tool sends, posts, deletes or moves money. Confirm."
+          }
+        ],
+        "step_cap": { "max_calls": 200 },
+        "untrusted_tools": [
+          "^WebFetch$",
+          "^WebSearch$",
+          "(?i)^mcp__.*(?:read|get|fetch|search|list|query|browse|scrape|download)"
+        ],
+        "injection_markers": [
+          { "id": "ignore-previous", "pattern": "ignore\\s{1,3}(?:all\\s{1,3})?(?:previous|prior|above)\\s{1,3}instructions" },
+          { "id": "disregard-instructions", "pattern": "disregard\\s{1,3}(?:all\\s{1,3})?(?:previous|prior|your)\\s{1,3}instructions" },
+          { "id": "new-instructions", "pattern": "(?:new|updated)\\s{1,3}instructions\\s{0,3}:" },
+          { "id": "role-override", "pattern": "you\\s{1,3}are\\s{1,3}now\\s{1,3}(?:a|an|in)\\b" },
+          { "id": "exfil-request", "pattern": "\\b(?:send|email|post|upload)\\s{1,3}(?:(?:me|us|it|them)\\s{1,3})?(?:the|your|all|any|my|our|this|these)\\b[^.\\n]{0,60}(?:\\.env|credentials|api[_ ]key|password|secret)" },
+          { "id": "fake-system-tag", "pattern": "<\\s{0,3}(?:/\\s{0,3})?(?:system|assistant)\\s{0,3}>" }
+        ],
+        "audit": { "max_input_chars": 2000, "otel_field_names": true }
+      };
+
+      var SAMPLE_EVENTS = [
+        {"ts": "2026-11-07T18:24:57Z", "session_id": "demo-2", "tool_name": "Read", "tool_use_id": "t2", "event": "decision", "decision": "deny", "rule": "deny-env-files", "step": 1, "input": {"file_path": ".env"}, "reason": "Environment files hold secrets. Claude may not read or touch them.", "gen_ai.tool.name": "Read", "gen_ai.tool.call.id": "t2", "gen_ai.conversation.id": "demo-2"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "demo-3", "tool_name": "Read", "tool_use_id": "t3", "event": "decision", "decision": "deny", "rule": "deny-env-files", "step": 1, "input": {"file_path": "/app/.env.production"}, "reason": "Environment files hold secrets. Claude may not read or touch them.", "gen_ai.tool.name": "Read", "gen_ai.tool.call.id": "t3", "gen_ai.conversation.id": "demo-3"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "demo-5", "tool_name": "Bash", "tool_use_id": "t5", "event": "decision", "decision": "ask", "rule": "deny-key-files", "step": 1, "input": {"command": "cat /home/u/.ssh/id_rsa"}, "reason": "Private key files are off limits. This is a shell command, so the guard asks instead of denying: shell text can be spelled in ways no rule matches (README, \"What holds each threat\").", "gen_ai.tool.name": "Bash", "gen_ai.tool.call.id": "t5", "gen_ai.conversation.id": "demo-5"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "demo-6", "tool_name": "Read", "tool_use_id": "t6", "event": "decision", "decision": "deny", "rule": "deny-credential-dirs", "step": 1, "input": {"file_path": "/home/u/.aws/credentials"}, "reason": "Credential files and folders (cloud, SSH, git, package registries) are off limits.", "gen_ai.tool.name": "Read", "gen_ai.tool.call.id": "t6", "gen_ai.conversation.id": "demo-6"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "demo-7", "tool_name": "Read", "tool_use_id": "t7", "event": "decision", "decision": "deny", "rule": "deny-prod-config", "step": 1, "input": {"file_path": "/srv/app/production/db.yaml"}, "reason": "Production config is off limits. Use a human-run process for production.", "gen_ai.tool.name": "Read", "gen_ai.tool.call.id": "t7", "gen_ai.conversation.id": "demo-7"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "demo-10", "tool_name": "Bash", "tool_use_id": "t10", "event": "decision", "decision": "ask", "rule": "ask-git-push", "step": 1, "input": {"command": "git push origin main"}, "reason": "A push publishes commits. Confirm the branch.", "gen_ai.tool.name": "Bash", "gen_ai.tool.call.id": "t10", "gen_ai.conversation.id": "demo-10"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "demo-11", "tool_name": "Bash", "tool_use_id": "t11", "event": "decision", "decision": "ask", "rule": "deny-force-push", "step": 1, "input": {"command": "git push --force origin main"}, "reason": "Force pushes rewrite shared history. This is a shell command, so the guard asks instead of denying: shell text can be spelled in ways no rule matches (README, \"What holds each threat\").", "gen_ai.tool.name": "Bash", "gen_ai.tool.call.id": "t11", "gen_ai.conversation.id": "demo-11"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "demo-12", "tool_name": "Bash", "tool_use_id": "t12", "event": "decision", "decision": "ask", "rule": "ask-rm-recursive", "step": 1, "input": {"command": "rm -rf build"}, "reason": "Recursive delete. Confirm the path.", "gen_ai.tool.name": "Bash", "gen_ai.tool.call.id": "t12", "gen_ai.conversation.id": "demo-12"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "demo-13", "tool_name": "Bash", "tool_use_id": "t13", "event": "decision", "decision": "ask", "rule": "ask-terraform-apply", "step": 1, "input": {"command": "terraform apply -auto-approve"}, "reason": "Terraform changes real infrastructure.", "gen_ai.tool.name": "Bash", "gen_ai.tool.call.id": "t13", "gen_ai.conversation.id": "demo-13"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "demo-14", "tool_name": "Bash", "tool_use_id": "t14", "event": "decision", "decision": "ask", "rule": "ask-vercel-prod", "step": 1, "input": {"command": "vercel --prod"}, "reason": "This deploys to production.", "gen_ai.tool.name": "Bash", "gen_ai.tool.call.id": "t14", "gen_ai.conversation.id": "demo-14"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "demo-15", "tool_name": "Bash", "tool_use_id": "t15", "event": "decision", "decision": "ask", "rule": "ask-publish", "step": 1, "input": {"command": "npm publish"}, "reason": "Publishing a package is public and hard to undo.", "gen_ai.tool.name": "Bash", "gen_ai.tool.call.id": "t15", "gen_ai.conversation.id": "demo-15"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "demo-16", "tool_name": "mcp__gmail__send_email", "tool_use_id": "t16", "event": "decision", "decision": "ask", "rule": "ask-mcp-write", "step": 1, "input": {"to": "a@example.com", "body": "hi"}, "reason": "This tool sends, posts, deletes or moves money. Confirm.", "gen_ai.tool.name": "mcp__gmail__send_email", "gen_ai.tool.call.id": "t16", "gen_ai.conversation.id": "demo-16"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "demo-18", "tool_name": "Bash", "tool_use_id": "t18", "event": "result", "decision": "allow", "rule": "default-allow", "step": 1, "input": {"command": "echo [REDACTED:anthropic-key]"}, "result_bytes": 113, "status": "ok", "warnings": [], "gen_ai.tool.name": "Bash", "gen_ai.tool.call.id": "t18", "gen_ai.conversation.id": "demo-18"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "marked", "tool_name": "WebFetch", "tool_use_id": "t19", "event": "result", "decision": "allow", "rule": "default-allow", "step": 1, "input": {"url": "https://example.com/page"}, "result_bytes": 86, "status": "ok", "warnings": [{"warning": "prompt-injection-suspected", "marker": "ignore-previous", "excerpt": "IGNORE ALL PREVIOUS INSTRUCTIONS"}, {"warning": "prompt-injection-suspected", "marker": "exfil-request", "excerpt": "send the .env"}], "warned": true, "tainted": true, "gen_ai.tool.name": "WebFetch", "gen_ai.tool.call.id": "t19", "gen_ai.conversation.id": "marked"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "marked", "tool_name": "mcp__github__create_issue", "tool_use_id": "t20", "event": "decision", "decision": "ask", "rule": "ask-after-injection", "step": 2, "input": {"title": "x"}, "reason": "Earlier in this session a WebFetch result held text that looks like instructions (ignore-previous, exfil-request). Until this session ends, every step except reading and editing local files asks first. Check that this step is what you asked for. To clear the mark, delete /data/state/marked.taint.", "tainted": true, "gen_ai.tool.name": "mcp__github__create_issue", "gen_ai.tool.call.id": "t20", "gen_ai.conversation.id": "marked"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "marked", "tool_name": "mcp__github__create_issue", "tool_use_id": "t20", "event": "result", "decision": "ask", "rule": "ask-after-injection", "step": 2, "input": {"title": "x"}, "result_bytes": 12, "status": "ok", "warnings": [], "warned": false, "tainted": true, "gen_ai.tool.name": "mcp__github__create_issue", "gen_ai.tool.call.id": "t20", "gen_ai.conversation.id": "marked"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "runaway", "tool_name": "Bash", "tool_use_id": "t23", "event": "decision", "decision": "ask", "rule": "step-cap", "step": 4, "input": {"command": "ls"}, "reason": "Step cap reached: 4 tool calls this session (cap 3).", "gen_ai.tool.name": "Bash", "gen_ai.tool.call.id": "t23", "gen_ai.conversation.id": "runaway"},
+        {"ts": "2026-11-07T18:24:58Z", "session_id": "runaway", "tool_name": "Bash", "tool_use_id": "t24", "event": "decision", "decision": "ask", "rule": "step-cap", "step": 5, "input": {"command": "ls"}, "reason": "Step cap reached: 5 tool calls this session (cap 3).", "gen_ai.tool.name": "Bash", "gen_ai.tool.call.id": "t24", "gen_ai.conversation.id": "runaway"},
+        {"ts": "2026-11-07T18:25:30Z", "session_id": "hostile-test", "tool_name": "WebFetch", "tool_use_id": "t99", "event": "result", "decision": "allow", "rule": null, "step": 3, "input": {"url": "https://example.com/\u003cscript\u003ealert(1)\u003c\/script\u003e"}, "result_bytes": 88, "status": "ok", "warnings": ["ignore-previous"], "note": "\u003cimg src=x onerror=alert(1)\u003e"}
+      ];
+
+      var SAMPLE_STATUS = {
+        "plugin_loaded": true,
+        "policy_ok": true,
+        "policy_error": null,
+        "isolation": false,
+        "log_found": true
+      };
+
+      /* =====================================================================
+         2. DESIGNED STATES FOR ?states=1
+         ===================================================================== */
+      var PREVIEW_STATES = [
+        {
+          id: "sample-data",
+          label: "sample data (no server)",
+          screenId: "scr-01-main-sample",
+          apply: function () {
+            state.status = cloneObj(SAMPLE_STATUS);
+            state.policy = cloneObj(SAMPLE_POLICY);
+            state.events = cloneObj(SAMPLE_EVENTS);
+            state.usingSample = true;
+            state.banner = null;
+          }
+        },
+        {
+          id: "plugin-not-installed",
+          label: "plugin not installed",
+          screenId: "scr-02-plugin-uninstalled",
+          apply: function () {
+            state.status = {
+              plugin_loaded: false,
+              policy_ok: true,
+              policy_error: null,
+              isolation: false,
+              log_found: false
+            };
+            state.policy = cloneObj(SAMPLE_POLICY);
+            state.events = [];
+            state.usingSample = true;
+            state.banner = {
+              level: "critical",
+              title: "UNPROTECTED: agent-guardrails plugin is not registered in Claude Code",
+              desc: "Tool calls are not being intercepted. Register PreToolUse and PostToolUse hooks in ~/.claude/settings.json."
+            };
+          }
+        },
+        {
+          id: "no-log-yet",
+          label: "no log yet",
+          screenId: "scr-03-no-log",
+          apply: function () {
+            state.status = {
+              plugin_loaded: true,
+              policy_ok: true,
+              policy_error: null,
+              isolation: false,
+              log_found: false
+            };
+            state.policy = cloneObj(SAMPLE_POLICY);
+            state.events = [];
+            state.usingSample = true;
+            state.banner = {
+              level: "info",
+              title: "Protected & Idle: Waiting for first tool call",
+              desc: "Plugin and policy.json are loaded. The audit log file will be created on the first Claude Code tool call."
+            };
+          }
+        },
+        {
+          id: "policy-failed",
+          label: "policy failed to load",
+          screenId: "scr-04-policy-failed",
+          apply: function () {
+            state.status = {
+              plugin_loaded: true,
+              policy_ok: false,
+              policy_error: "policy.json line 14: invalid regular expression in rule match",
+              isolation: false,
+              log_found: true
+            };
+            state.policy = { version: 1, isolation: false, rules: [], step_cap: { max_calls: 200 } };
+            state.events = [
+              {
+                "ts": "2026-11-07T18:26:10Z",
+                "session_id": "fail-closed-session",
+                "tool_name": "Read",
+                "tool_use_id": "t-fc-1",
+                "event": "decision",
+                "decision": "ask",
+                "rule": "policy-load-failed",
+                "step": 1,
+                "input": {"file_path": "README.md"},
+                "reason": "Fail closed: policy.json failed to parse (line 14: invalid regular expression in rule match). Every tool call requires human confirmation until policy.json is fixed."
+              }
+            ];
+            state.usingSample = true;
+            state.banner = {
+              level: "warning",
+              title: "FAIL-CLOSED ENFORCEMENT: policy.json failed to load — every tool call now asks for confirmation",
+              desc: "Error: policy.json line 14: invalid regular expression in rule match. Fix policy.json to restore normal rule evaluation."
+            };
+          }
+        },
+        {
+          id: "isolation-on",
+          label: "isolation on",
+          screenId: "scr-05-isolation-on",
+          apply: function () {
+            state.status = {
+              plugin_loaded: true,
+              policy_ok: true,
+              policy_error: null,
+              isolation: true,
+              log_found: true
+            };
+            var pol = cloneObj(SAMPLE_POLICY);
+            pol.isolation = true;
+            state.policy = pol;
+            state.events = cloneObj(SAMPLE_EVENTS);
+            state.usingSample = true;
+            state.banner = {
+              level: "info",
+              title: "Sandbox Isolation Active (isolation: true)",
+              desc: "Claude Code's OS sandbox blocks shell reads of secret paths (.env, ~/.ssh, ~/.aws) alongside PreToolUse rules."
+            };
+          }
+        },
+        {
+          id: "isolation-tripwire",
+          label: "isolation tripwire refusing every shell call",
+          screenId: "scr-06-isolation-tripwire",
+          apply: function () {
+            state.status = {
+              plugin_loaded: true,
+              policy_ok: true,
+              policy_error: "Isolation tripwire triggered: project .claude/settings.local.json widened sandbox permissions",
+              isolation: true,
+              log_found: true
+            };
+            var pol = cloneObj(SAMPLE_POLICY);
+            pol.isolation = true;
+            state.policy = pol;
+            var evs = cloneObj(SAMPLE_EVENTS);
+            evs.push({
+              "ts": "2026-11-07T18:27:05Z",
+              "session_id": "tripwire-session",
+              "tool_name": "Bash",
+              "tool_use_id": "t-trip-1",
+              "event": "decision",
+              "decision": "deny",
+              "rule": "isolation-tripwire",
+              "step": 1,
+              "input": {"command": "ls -la"},
+              "reason": "Isolation tripwire: a project setting widened the sandbox (enableWeakerNestedSandbox or unsandboxed commands). Refusing every shell call until sandbox posture is restored."
+            });
+            state.events = evs;
+            state.usingSample = true;
+            state.banner = {
+              level: "critical",
+              title: "ISOLATION TRIPWIRE ACTIVE: Refusing every shell call",
+              desc: "A project setting widened the Claude Code sandbox while policy.json requires isolation: true. Restore strict sandbox settings in .claude/settings.local.json."
+            };
+          }
+        },
+        {
+          id: "step-cap-reached",
+          label: "step cap reached (calls switch to ask)",
+          screenId: "scr-07-step-cap",
+          apply: function () {
+            state.status = cloneObj(SAMPLE_STATUS);
+            var pol = cloneObj(SAMPLE_POLICY);
+            pol.step_cap = { max_calls: 3 };
+            state.policy = pol;
+            state.events = SAMPLE_EVENTS.filter(function (e) {
+              return e.session_id === "runaway";
+            });
+            state.usingSample = true;
+            state.banner = {
+              level: "warning",
+              title: "STEP CAP REACHED (5 of 3 calls in session 'runaway'): Every call now switches to ask",
+              desc: "Session 'runaway' exceeded step_cap.max_calls (3). Subsequent tool calls require human approval."
+            };
+          }
+        }
+      ];
+
+
+      /* =====================================================================
+         3. APPLICATION STATE
+         ===================================================================== */
+      var state = {
+        status: cloneObj(SAMPLE_STATUS),
+        policy: cloneObj(SAMPLE_POLICY),
+        events: cloneObj(SAMPLE_EVENTS),
+        usingSample: true,
+        activePreviewState: "sample-data",
+        banner: null,
+        filters: {
+          decision: "all",
+          rule: "all",
+          tool: "all",
+          session: "all",
+          signal: "all"
+        },
+        expandedEventIds: {},
+        lastTimestamp: null,
+        statusSig: "",
+        rulesSig: null,
+        rulesCollapsed: true,
+        pollTimer: null,
+        clockTimer: null,
+        offline: false,
+        retryTimer: null
+      };
+
+      function cloneObj(o) {
+        return JSON.parse(JSON.stringify(o));
+      }
+
+      /* =====================================================================
+         4. SAFE DOM HELPERS (Log and policy strings only ever go in as text)
+         ===================================================================== */
+      function clearNode(node) {
+        while (node.firstChild) {
+          node.removeChild(node.firstChild);
+        }
+      }
+
+      function el(tag, className, text) {
+        var node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined && text !== null) {
+          node.textContent = String(text);
+        }
+        return node;
+      }
+
+      function createSvg(pathD, strokeWidth) {
+        var svgNS = "http://www.w3.org/2000/svg";
+        var svg = document.createElementNS(svgNS, "svg");
+        svg.setAttribute("viewBox", "0 0 16 16");
+        svg.setAttribute("fill", "none");
+        svg.setAttribute("stroke", "currentColor");
+        svg.setAttribute("stroke-width", strokeWidth || "1.8");
+        svg.setAttribute("aria-hidden", "true");
+        var path = document.createElementNS(svgNS, "path");
+        path.setAttribute("d", pathD);
+        svg.appendChild(path);
+        return svg;
+      }
+
+      function createDecisionIcon(decision) {
+        var d;
+        if (decision === "deny") {
+          d = "M8 1.8a6.2 6.2 0 1 0 0 12.4A6.2 6.2 0 0 0 8 1.8zm-4.3 4.3l8.6 8.6";
+        } else if (decision === "flagged") {
+          d = "M8 2.2L1.6 13.3h12.8L8 2.2zM8 6.6v3.2M8 11.3v.9";
+        } else if (decision === "ask") {
+          d = "M5.5 8V3.5a1 1 0 0 1 2 0V7m0-4a1 1 0 0 1 2 0v4m0-3a1 1 0 0 1 2 0v5.5a4.5 4.5 0 0 1-9 0V7.5a1 1 0 0 1 2 0V9";
+        } else {
+          d = "M2.8 8.5l3.4 3.4L13.4 4.7";
+        }
+        return createSvg(d, "1.8");
+      }
+
+      function chipKind(decision) {
+        return (decision === "deny" || decision === "ask" || decision === "allow" || decision === "flagged") ? decision : "ask";
+      }
+
+      function decisionWord(decision) {
+        var norm = chipKind(decision);
+        return norm.charAt(0).toUpperCase() + norm.slice(1);
+      }
+
+      function createDecisionBadge(decision) {
+        var norm = chipKind(decision);
+        var badge = el("span", "decision-badge " + norm);
+        badge.appendChild(createDecisionIcon(norm));
+        badge.appendChild(el("span", null, decisionWord(norm)));
+        return badge;
+      }
+
+      function getToolPillClass(toolName) {
+        var name = String(toolName || "");
+        if (name === "Bash" || name === "PowerShell" || name === "Monitor") return "event-tool-pill tool-shell";
+        if (name === "Read" || name === "Write" || name === "Edit" || name === "Glob" || name === "Grep") return "event-tool-pill tool-file";
+        if (name === "WebFetch" || name === "WebSearch") return "event-tool-pill tool-web";
+        if (name.indexOf("mcp__") === 0) return "event-tool-pill tool-mcp";
+        return "event-tool-pill tool-web";
+      }
+
+      /* Every event gets a stable key from what it is, never from where it sits in the list.
+         Two lines with the same id and time get a counter, so each key stays unique. */
+      function assignEventKeys(events) {
+        var seen = {};
+        for (var i = 0; i < events.length; i++) {
+          var base = (events[i].tool_use_id || "ev") + "|" + (events[i].ts || "");
+          var n = seen[base] || 0;
+          seen[base] = n + 1;
+          events[i].__key = n === 0 ? base : base + "#" + n;
+        }
+      }
+
+      /* An id-safe form of a key. Each other character becomes _<hex>_, so two keys never collide. */
+      function safeKey(key) {
+        return String(key).replace(/[^A-Za-z0-9\-]/g, function (c) {
+          return "_" + c.charCodeAt(0).toString(16) + "_";
+        });
+      }
+
+      function announce(msg) {
+        var region = document.getElementById("live-status");
+        region.textContent = "";
+        setTimeout(function () { region.textContent = msg; }, 80);
+      }
+
+      /* =====================================================================
+         5. TIME & TARGET FORMATTERS
+         ===================================================================== */
+      function getReferenceNowMs() {
+        if (state.usingSample && state.events.length > 0) {
+          var maxMs = 0;
+          for (var i = 0; i < state.events.length; i++) {
+            var t = Date.parse(state.events[i].ts);
+            if (!isNaN(t) && t > maxMs) maxMs = t;
+          }
+          if (maxMs > 0) return maxMs + 12000;
+        }
+        return Date.now();
+      }
+
+      function formatRelativeTime(isoString) {
+        if (!isoString) return "—";
+        var ts = Date.parse(isoString);
+        if (isNaN(ts)) return String(isoString);
+        var diffSec = Math.max(0, Math.round((getReferenceNowMs() - ts) / 1000));
+        if (diffSec < 60) return diffSec + "s ago";
+        var diffMin = Math.floor(diffSec / 60);
+        if (diffMin < 60) return diffMin + "m ago";
+        var diffHr = Math.floor(diffMin / 60);
+        if (diffHr < 24) return diffHr + "h ago";
+        var diffDay = Math.floor(diffHr / 24);
+        return diffDay + "d ago";
+      }
+
+      function extractEventTarget(ev) {
+        if (!ev || !ev.input || typeof ev.input !== "object") return "—";
+        var inp = ev.input;
+        if (typeof inp.file_path === "string") return inp.file_path;
+        if (typeof inp.path === "string") return inp.path;
+        if (typeof inp.command === "string") return inp.command;
+        if (typeof inp.url === "string") return inp.url;
+        if (typeof inp.to === "string") {
+          return "to:" + inp.to + (inp.subject ? " (" + inp.subject + ")" : "");
+        }
+        var keys = Object.keys(inp);
+        if (keys.length === 0) return "{}";
+        var firstKey = keys[0];
+        return firstKey + ": " + String(inp[firstKey]);
+      }
+
+      /* The rule a row counts under: its own Pre rule. Only an allow falls back to default-allow;
+         a result line with no Pre record has no rule. */
+      function normalizeRuleId(ev) {
+        if (ev && ev.rule !== null && ev.rule !== undefined && ev.rule !== "") {
+          return String(ev.rule);
+        }
+        return ev && ev.decision === "allow" ? "default-allow" : "";
+      }
+
+      /* What a row is: the Pre decision before the call, or what the scan found in the reply after it.
+         The chip, tint, row name, header pills, bar, Decision filter and Last event tile all read this. */
+      function rowKind(ev) {
+        if (ev && ev.event === "result") {
+          if (extractWarnings(ev).length > 0) return "flagged";
+          return ev.decision === "allow" ? "allow" : "ask";
+        }
+        return ev && (ev.decision === "deny" || ev.decision === "ask" || ev.decision === "allow") ? ev.decision : "ask";
+      }
+
+      function rowNote(ev) {
+        var kind = rowKind(ev);
+        if (kind === "flagged") {
+          if (ev.warned !== true) return "logged only";
+          return ev.tainted === true ? "warned Claude · session marked" : "warned Claude";
+        }
+        if (kind === "ask" && ev && ev.event === "result") return ev.decision === "unknown" ? "no Pre record" : "ran after the ask";
+        return null;
+      }
+
+      function extractWarnings(ev) {
+        if (!ev || !Array.isArray(ev.warnings) || ev.warnings.length === 0) return [];
+        var out = [];
+        for (var i = 0; i < ev.warnings.length; i++) {
+          var w = ev.warnings[i];
+          if (typeof w === "string") {
+            out.push({ marker: w, excerpt: null });
+          } else if (w && typeof w === "object") {
+            out.push({
+              marker: w.marker || w.warning || "injection-warning",
+              excerpt: w.excerpt || null
+            });
+          }
+        }
+        return out;
+      }
+
+      function isRedacted(ev) {
+        return extractEventTarget(ev).indexOf("[REDACTED:") !== -1;
+      }
+
+      /* =====================================================================
+         6. RENDERING: POSTURE STRIP & STATE BANNER
+         ===================================================================== */
+      function renderPostureAndBanner() {
+        var badge = document.getElementById("data-source-badge");
+        if (state.usingSample) {
+          badge.textContent = "sample data";
+          badge.className = "data-source-pill sample";
+        } else if (state.offline) {
+          badge.textContent = "offline";
+          badge.className = "data-source-pill offline";
+        } else {
+          badge.textContent = "live /api";
+          badge.className = "data-source-pill";
+        }
+
+        var bannerEl = document.getElementById("state-banner");
+        var bannerTitle = document.getElementById("state-banner-title");
+        var bannerDesc = document.getElementById("state-banner-desc");
+
+        // Only a live server sends plugin_detail, so sample mode and the ?states=1 previews keep their words.
+        var detail = state.status.plugin_detail;
+        var activeBanner = state.banner;
+        if (!activeBanner) {
+          if (!state.status.plugin_loaded) {
+            activeBanner = detail ? {
+              level: "critical",
+              title: "No hook writes found",
+              desc: detail
+            } : {
+              level: "critical",
+              title: "UNPROTECTED: Plugin not loaded",
+              desc: "Claude Code tool calls are not being checked by agent-guardrails."
+            };
+          } else if (!state.status.policy_ok) {
+            activeBanner = {
+              level: "warning",
+              title: "Policy problem: every call that is not denied now asks",
+              desc: state.status.policy_error || "Fix policy.json to restore rule evaluation."
+            };
+          }
+        }
+
+        if (activeBanner) {
+          bannerEl.className = "state-banner visible " + activeBanner.level;
+          // Write only on change, so the live region speaks only when the message changes.
+          if (bannerTitle.textContent !== activeBanner.title) bannerTitle.textContent = activeBanner.title;
+          if (bannerDesc.textContent !== activeBanner.desc) bannerDesc.textContent = activeBanner.desc;
+        } else {
+          bannerEl.className = "state-banner";
+          if (bannerTitle.textContent) bannerTitle.textContent = "";
+          if (bannerDesc.textContent) bannerDesc.textContent = "";
+        }
+
+        // Tile: Plugin
+        var tilePlugin = document.getElementById("tile-plugin");
+        var dotPlugin = document.getElementById("dot-plugin");
+        var valPlugin = document.getElementById("val-plugin");
+        var subPlugin = document.getElementById("sub-plugin");
+        if (state.status.plugin_loaded) {
+          tilePlugin.className = "posture-tile tone-ok";
+          dotPlugin.className = "status-dot ok";
+          valPlugin.textContent = detail ? "Hooks seen" : "Loaded";
+          subPlugin.textContent = detail || "Enforcing PreToolUse & PostToolUse";
+        } else {
+          tilePlugin.className = "posture-tile tone-err";
+          dotPlugin.className = "status-dot err";
+          valPlugin.textContent = detail ? "No hook writes" : "Not Installed";
+          subPlugin.textContent = detail || "No hooks registered in Claude Code";
+        }
+
+        // Tile: Policy
+        var tilePolicy = document.getElementById("tile-policy");
+        var dotPolicy = document.getElementById("dot-policy");
+        var valPolicy = document.getElementById("val-policy");
+        var subPolicy = document.getElementById("sub-policy");
+        var rulesArr = (state.policy && Array.isArray(state.policy.rules)) ? state.policy.rules : [];
+        if (!state.status.policy_ok) {
+          tilePolicy.className = "posture-tile tone-warn";
+          dotPolicy.className = "status-dot warn";
+          valPolicy.textContent = "Failed (Fail-Closed)";
+          subPolicy.textContent = state.status.policy_error || "Every call asks for confirmation";
+        } else {
+          var denyCount = rulesArr.filter(function (r) { return r.decision === "deny"; }).length;
+          var askCount = rulesArr.filter(function (r) { return r.decision === "ask"; }).length;
+          tilePolicy.className = "posture-tile tone-ok";
+          dotPolicy.className = "status-dot ok";
+          valPolicy.textContent = "Loaded (" + rulesArr.length + " rules)";
+          subPolicy.textContent = denyCount + " Deny · " + askCount + " Ask (v" + ((state.policy && state.policy.version) || 1) + ")";
+        }
+
+        // Tile: Isolation
+        var tileIso = document.getElementById("tile-isolation");
+        var dotIso = document.getElementById("dot-isolation");
+        var valIso = document.getElementById("val-isolation");
+        var subIso = document.getElementById("sub-isolation");
+        var isoOn = Boolean(state.status.isolation || (state.policy && state.policy.isolation));
+        var isTripwire = state.status.policy_error && state.status.policy_error.toLowerCase().indexOf("tripwire") !== -1;
+        if (isTripwire) {
+          tileIso.className = "posture-tile tone-err";
+          dotIso.className = "status-dot err";
+          valIso.textContent = "Tripwire Refusing Shell";
+          subIso.textContent = "Sandbox widened by project settings";
+        } else if (isoOn) {
+          tileIso.className = "posture-tile tone-cyan";
+          dotIso.className = "status-dot cyan";
+          valIso.textContent = "On in policy";
+          subIso.textContent = "Shell calls need the sandbox block in the project settings";
+        } else {
+          tileIso.className = "posture-tile tone-neutral";
+          dotIso.className = "status-dot neutral";
+          valIso.textContent = "Off";
+          subIso.textContent = "Shell secret reads gated by Ask rules";
+        }
+
+        // Tile: Steps this session vs cap
+        var tileSteps = document.getElementById("tile-steps");
+        var dotSteps = document.getElementById("dot-steps");
+        var valSteps = document.getElementById("val-steps");
+        var subSteps = document.getElementById("sub-steps");
+        var meterFill = document.getElementById("step-meter-fill");
+        var maxCalls = (state.policy && state.policy.step_cap && state.policy.step_cap.max_calls) ? state.policy.step_cap.max_calls : 200;
+
+        var targetSession = state.filters.session !== "all" ? state.filters.session : null;
+        var newestEvent = state.events.length > 0 ? state.events[state.events.length - 1] : null;
+        if (!targetSession && newestEvent) {
+          targetSession = newestEvent.session_id;
+        }
+
+        var maxStepInSession = 0;
+        var capHitInSession = false;
+        if (targetSession) {
+          for (var i = 0; i < state.events.length; i++) {
+            var ev = state.events[i];
+            if (ev.session_id === targetSession) {
+              if (typeof ev.step === "number" && ev.step > maxStepInSession) {
+                maxStepInSession = ev.step;
+              }
+              if (ev.rule === "step-cap") {
+                capHitInSession = true;
+              }
+            }
+          }
+        }
+
+        if (state.events.length === 0) {
+          tileSteps.className = "posture-tile tone-neutral";
+          dotSteps.className = "status-dot neutral";
+          valSteps.textContent = "0 of " + maxCalls;
+          subSteps.textContent = "No active session";
+          meterFill.style.width = "0%";
+          meterFill.className = "step-meter-fill";
+        } else {
+          var pct = Math.min(100, Math.max(2, Math.round((maxStepInSession / maxCalls) * 100)));
+          meterFill.style.width = pct + "%";
+          valSteps.textContent = maxStepInSession + " of " + maxCalls;
+          if (capHitInSession || maxStepInSession >= maxCalls) {
+            tileSteps.className = "posture-tile tone-warn";
+            dotSteps.className = "status-dot warn";
+            meterFill.className = "step-meter-fill warn";
+            subSteps.textContent = "Session '" + targetSession + "' · Cap reached (calls ask)";
+          } else {
+            tileSteps.className = "posture-tile tone-ok";
+            dotSteps.className = "status-dot ok";
+            meterFill.className = "step-meter-fill";
+            subSteps.textContent = "Session '" + targetSession + "' (" + state.events.length + " total events)";
+          }
+        }
+
+        // Tile: Last event. Health colors are for system health; a decision never paints the tile.
+        // A deny is the guard doing its job. Only an injection warning raises the tile to a warning.
+        var tileLast = document.getElementById("tile-last");
+        var dotLast = document.getElementById("dot-last");
+        var valLast = document.getElementById("val-last");
+        var subLast = document.getElementById("sub-last");
+        clearNode(valLast);
+        if (!newestEvent) {
+          tileLast.className = "posture-tile tone-neutral";
+          dotLast.className = "status-dot neutral";
+          valLast.textContent = "No events";
+          subLast.textContent = state.status.log_found ? "Log empty" : "No audit log yet";
+        } else {
+          var rel = formatRelativeTime(newestEvent.ts);
+          var lastWarnings = extractWarnings(newestEvent);
+          valLast.appendChild(el("span", null, rel));
+          valLast.appendChild(createDecisionBadge(rowKind(newestEvent)));
+          if (lastWarnings.length > 0) {
+            var lastFlag = el("span", "injection-flag");
+            lastFlag.appendChild(el("span", null, "⚠")).setAttribute("aria-hidden", "true");
+            lastFlag.appendChild(el("span", null, "Injection"));
+            valLast.appendChild(lastFlag);
+            tileLast.className = "posture-tile tone-warn";
+            dotLast.className = "status-dot warn";
+          } else {
+            tileLast.className = "posture-tile tone-neutral";
+            dotLast.className = "status-dot neutral";
+          }
+          valLast.title = newestEvent.ts || "";
+          subLast.textContent = newestEvent.tool_name + " → " + extractEventTarget(newestEvent) +
+            (lastWarnings.length > 0 ? " · Injection warning" + (lastWarnings.length > 1 ? "s" : "") + ": " + lastWarnings.length : "");
+        }
+      }
+
+      /* =====================================================================
+         7. RENDERING: LEFT PANE (POLICY RULES)
+         The list is built once per policy. A render only updates hit counts and the selected rule,
+         so focus and scroll position are never lost.
+         ===================================================================== */
+      var ruleNodes = {};
+
+      function setRulesCount(n) {
+        var pills = document.querySelectorAll(".rules-count");
+        for (var i = 0; i < pills.length; i++) pills[i].textContent = String(n);
+      }
+
+      function toggleRuleFilter(ruleId) {
+        state.filters.rule = state.filters.rule === ruleId ? "all" : ruleId;
+        syncFilterControls();
+        renderAll();
+        announce(state.filters.rule !== "all"
+          ? "Filtered by rule " + ruleId + ": " + document.getElementById("events-count").textContent + " events"
+          : "Rule filter cleared: " + document.getElementById("events-count").textContent + " events");
+      }
+
+      function buildRuleItem(rule) {
+        var isDenyLike = rule.decision === "deny";
+        var li = el("li", "rule-item " + (isDenyLike ? "rule-deny" : "rule-ask"));
+
+        var top = el("div", "rule-top");
+        var btn = el("button", "rule-row");
+        btn.type = "button";
+        btn.setAttribute("data-rule-id", rule.id);
+        btn.setAttribute("data-focus-id", "rule:" + rule.id);
+        btn.setAttribute("aria-pressed", "false");
+        // The name starts with the visible words (badge, then rule id), so it also satisfies label-in-name.
+        btn.setAttribute("aria-label", decisionWord(rule.decision) + " " + rule.id + ". Filter events by this rule");
+        btn.appendChild(createDecisionBadge(rule.decision));
+        btn.appendChild(document.createTextNode(" "));
+        btn.appendChild(el("span", "rule-id", rule.id));
+        top.appendChild(btn);
+
+        top.appendChild(el("span", "kind-badge kind-" + (rule.kind || "tool"), rule.kind));
+        if (!SHIPPED_RULE_IDS[rule.id]) {
+          top.appendChild(el("span", "origin-badge", "user-added"));
+        }
+        if (rule.decision === "deny" && (rule.kind === "path" || rule.kind === "command")) {
+          var shellBadge = el("span", "shell-note-badge", "asks on shell");
+          shellBadge.title = "On shell tools (Bash, PowerShell, Monitor), this Deny rule acts as Ask because shell text can be respelled.";
+          top.appendChild(shellBadge);
+        }
+        var hitSpan = el("span", "rule-hit-count", "0 hits");
+        top.appendChild(hitSpan);
+        li.appendChild(top);
+
+        var reason = el("div", "rule-reason", rule.reason);
+        reason.title = rule.reason || "";
+        li.appendChild(reason);
+
+        var details = el("div", "rule-details");
+        if (rule.decision === "deny" && (rule.kind === "path" || rule.kind === "command")) {
+          details.appendChild(el("div", null, "Shell behavior: Acts as Ask on Bash / PowerShell / Monitor."));
+        }
+        if (rule.project_relative) {
+          details.appendChild(el("div", null, "Scope: project_relative = true"));
+        }
+        if (Array.isArray(rule.match) && rule.match.length > 0) {
+          details.appendChild(el("div", null, "match (" + rule.match.length + "):"));
+          var matchUl = el("ul", "rule-pattern-list");
+          for (var m = 0; m < rule.match.length; m++) {
+            matchUl.appendChild(el("li", null, rule.match[m]));
+          }
+          details.appendChild(matchUl);
+        }
+        if (Array.isArray(rule.except) && rule.except.length > 0) {
+          details.appendChild(el("div", null, "except (" + rule.except.length + "):"));
+          var exceptUl = el("ul", "rule-pattern-list");
+          for (var ex = 0; ex < rule.except.length; ex++) {
+            exceptUl.appendChild(el("li", null, rule.except[ex]));
+          }
+          details.appendChild(exceptUl);
+        }
+        li.appendChild(details);
+
+        // One handler for the whole row: the button's own click bubbles here. Selecting text to copy a
+        // pattern must not flip the filter.
+        li.addEventListener("click", function (e) {
+          var sel = window.getSelection ? String(window.getSelection()) : "";
+          if (sel && !e.target.closest("button")) return;
+          toggleRuleFilter(rule.id);
+        });
+
+        ruleNodes[rule.id] = { li: li, btn: btn, hits: hitSpan };
+        return li;
+      }
+
+      function renderRules() {
+        var listEl = document.getElementById("rules-list");
+        var rules = (state.policy && Array.isArray(state.policy.rules)) ? state.policy.rules : [];
+        setRulesCount(rules.length);
+
+        var sig = rules.length === 0 ? "empty|" + (state.status.policy_error || "") : JSON.stringify(rules);
+        if (sig !== state.rulesSig) {
+          state.rulesSig = sig;
+          ruleNodes = {};
+          clearNode(listEl);
+          if (rules.length === 0) {
+            var emptyMsg = el("li", "empty-feed-state");
+            emptyMsg.appendChild(el("div", "empty-feed-title", "No Policy Rules Loaded"));
+            emptyMsg.appendChild(el("div", "empty-feed-desc", state.status.policy_error || "policy.json could not be parsed. Fail-closed mode is active: every tool call asks for confirmation."));
+            listEl.appendChild(emptyMsg);
+          }
+          for (var j = 0; j < rules.length; j++) {
+            listEl.appendChild(buildRuleItem(rules[j]));
+          }
+        }
+
+        var ruleCounts = {};
+        for (var i = 0; i < state.events.length; i++) {
+          var rId = normalizeRuleId(state.events[i]);
+          ruleCounts[rId] = (ruleCounts[rId] || 0) + 1;
+        }
+        for (var k = 0; k < rules.length; k++) {
+          var node = ruleNodes[rules[k].id];
+          if (!node) continue;
+          var hits = ruleCounts[rules[k].id] || 0;
+          var hitText = hits + (hits === 1 ? " hit" : " hits");
+          if (node.hits.textContent !== hitText) node.hits.textContent = hitText;
+          node.hits.className = "rule-hit-count" + (hits > 0 ? " has-hits" : "");
+          var isSelected = state.filters.rule === rules[k].id;
+          node.li.classList.toggle("active", isSelected);
+          node.btn.setAttribute("aria-pressed", isSelected ? "true" : "false");
+        }
+      }
+
+      /* =====================================================================
+         8. RENDERING: FILTER SELECT OPTIONS & TELEMETRY BAR
+         ===================================================================== */
+      var pillNodes = null;
+
+      function setDecisionFilter(decision) {
+        state.filters.decision = state.filters.decision === decision ? "all" : decision;
+        syncFilterControls();
+        renderAll();
+      }
+
+      function buildPill(cls, focusId, title, onClick) {
+        var pill = el("button", "telemetry-pill " + cls);
+        pill.type = "button";
+        pill.title = title;
+        pill.setAttribute("data-focus-id", focusId);
+        pill.setAttribute("aria-pressed", "false");
+        var label = el("span");
+        var count = el("span");
+        pill.appendChild(label);
+        pill.appendChild(count);
+        pill.addEventListener("click", onClick);
+        return { btn: pill, label: label, count: count };
+      }
+
+      function ensureTelemetry() {
+        if (pillNodes) return;
+        var pillsEl = document.getElementById("telemetry-pills");
+        var barEl = document.getElementById("distribution-bar");
+        pillNodes = {
+          deny: buildPill("deny-pill", "pill:deny", "Deny blocks the call. Select to show only denied events.", function () { setDecisionFilter("deny"); }),
+          ask: buildPill("ask-pill", "pill:ask", "Ask needs a human yes. Select to show only events that asked.", function () { setDecisionFilter("ask"); }),
+          allow: buildPill("allow-pill", "pill:allow", "Allow passed the call. Select to show only allowed events.", function () { setDecisionFilter("allow"); }),
+          flagged: buildPill("inj-pill", "pill:flagged", "Flagged: the call ran and its reply matched a prompt-injection phrase. Logged, not blocked. Select to show only those.", function () { setDecisionFilter("flagged"); }),
+          segs: {
+            deny: el("div", "dist-seg-deny"),
+            ask: el("div", "dist-seg-ask"),
+            allow: el("div", "dist-seg-allow"),
+            flagged: el("div", "dist-seg-flagged")
+          }
+        };
+        pillNodes.deny.label.textContent = "Deny:";
+        pillNodes.ask.label.textContent = "Ask:";
+        pillNodes.allow.label.textContent = "Allow:";
+        var warnIcon = el("span", null, "⚠");
+        warnIcon.setAttribute("aria-hidden", "true");
+        pillNodes.flagged.btn.insertBefore(warnIcon, pillNodes.flagged.label);
+        pillNodes.flagged.label.textContent = "Flagged:";
+        pillsEl.appendChild(pillNodes.deny.btn);
+        pillsEl.appendChild(pillNodes.ask.btn);
+        pillsEl.appendChild(pillNodes.allow.btn);
+        pillsEl.appendChild(pillNodes.flagged.btn);
+        barEl.appendChild(pillNodes.segs.deny);
+        barEl.appendChild(pillNodes.segs.ask);
+        barEl.appendChild(pillNodes.segs.allow);
+        barEl.appendChild(pillNodes.segs.flagged);
+      }
+
+      function renderTelemetryStrip() {
+        ensureTelemetry();
+        var counts = { deny: 0, ask: 0, allow: 0, flagged: 0 };
+        for (var i = 0; i < state.events.length; i++) counts[rowKind(state.events[i])]++;
+        var denyCnt = counts.deny;
+        var askCnt = counts.ask;
+        var allowCnt = counts.allow;
+        var flagCnt = counts.flagged;
+
+        var total = Math.max(1, denyCnt + askCnt + allowCnt + flagCnt);
+        var hasEvents = state.events.length > 0;
+
+        pillNodes.deny.count.textContent = String(denyCnt);
+        pillNodes.ask.count.textContent = String(askCnt);
+        pillNodes.allow.count.textContent = String(allowCnt);
+        pillNodes.flagged.count.textContent = String(flagCnt);
+        pillNodes.deny.btn.setAttribute("aria-pressed", state.filters.decision === "deny" ? "true" : "false");
+        pillNodes.ask.btn.setAttribute("aria-pressed", state.filters.decision === "ask" ? "true" : "false");
+        pillNodes.allow.btn.setAttribute("aria-pressed", state.filters.decision === "allow" ? "true" : "false");
+        pillNodes.flagged.btn.setAttribute("aria-pressed", state.filters.decision === "flagged" ? "true" : "false");
+
+        pillNodes.segs.deny.style.width = hasEvents ? ((denyCnt / total) * 100) + "%" : "0";
+        pillNodes.segs.ask.style.width = hasEvents ? ((askCnt / total) * 100) + "%" : "0";
+        pillNodes.segs.allow.style.width = hasEvents ? ((allowCnt / total) * 100) + "%" : "0";
+        pillNodes.segs.flagged.style.width = hasEvents ? ((flagCnt / total) * 100) + "%" : "0";
+      }
+
+      function populateDynamicFilters() {
+        var rulesSet = {};
+        var toolsSet = {};
+        var sessionsSet = {};
+
+        var policyRules = (state.policy && Array.isArray(state.policy.rules)) ? state.policy.rules : [];
+        for (var i = 0; i < policyRules.length; i++) {
+          rulesSet[policyRules[i].id] = true;
+        }
+        for (var j = 0; j < state.events.length; j++) {
+          var ev = state.events[j];
+          rulesSet[normalizeRuleId(ev)] = true;
+          if (ev.tool_name) toolsSet[ev.tool_name] = true;
+          if (ev.session_id) sessionsSet[ev.session_id] = true;
+        }
+
+        syncSelectOptions(document.getElementById("filter-rule"), "All rules", Object.keys(rulesSet), state.filters.rule);
+        syncSelectOptions(document.getElementById("filter-tool"), "All tools", Object.keys(toolsSet).sort(), state.filters.tool);
+        syncSelectOptions(document.getElementById("filter-session"), "All sessions", Object.keys(sessionsSet), state.filters.session);
+      }
+
+      function appendOption(selectEl, value, label) {
+        var opt = el("option", null, label);
+        opt.value = value;
+        selectEl.appendChild(opt);
+      }
+
+      /* Rebuilds the options only when the set changed. A select the person has focused is never
+         rebuilt (that would close it); new options are appended instead. */
+      function syncSelectOptions(selectEl, allLabel, items, selectedVal) {
+        var sig = items.join("\u0000");
+        if (selectEl._sig === sig) return;
+        if (document.activeElement === selectEl && selectEl._sig !== undefined) {
+          var have = {};
+          for (var o = 0; o < selectEl.options.length; o++) have[selectEl.options[o].value] = true;
+          for (var n = 0; n < items.length; n++) {
+            if (!have[items[n]]) appendOption(selectEl, items[n], items[n]);
+          }
+          selectEl._sig = sig;
+          return;
+        }
+        selectEl._sig = sig;
+        clearNode(selectEl);
+        appendOption(selectEl, "all", allLabel);
+        for (var i = 0; i < items.length; i++) appendOption(selectEl, items[i], items[i]);
+        selectEl.value = (selectedVal && (selectedVal === "all" || items.indexOf(selectedVal) !== -1)) ? selectedVal : "all";
+      }
+
+      function syncFilterControls() {
+        document.getElementById("filter-decision").value = state.filters.decision;
+        document.getElementById("filter-rule").value = state.filters.rule;
+        document.getElementById("filter-tool").value = state.filters.tool;
+        document.getElementById("filter-session").value = state.filters.session;
+        document.getElementById("filter-signal").value = state.filters.signal;
+
+        var chipContainer = document.getElementById("active-rule-indicator");
+        if (chipContainer._rule === state.filters.rule) return;
+        chipContainer._rule = state.filters.rule;
+        clearNode(chipContainer);
+        if (state.filters.rule !== "all") {
+          var chip = el("span", "active-rule-chip");
+          chip.appendChild(el("span", null, "Filtered by rule: " + state.filters.rule));
+          var closeBtn = el("button", null, "×");
+          closeBtn.type = "button";
+          closeBtn.title = "Clear rule filter";
+          closeBtn.setAttribute("aria-label", "Clear rule filter");
+          closeBtn.addEventListener("click", function () {
+            state.filters.rule = "all";
+            syncFilterControls();
+            renderAll();
+            // The chip, with this button, is gone: focus goes to the rule filter and the change is spoken.
+            document.getElementById("filter-rule").focus();
+            announce("Rule filter cleared: " + document.getElementById("events-count").textContent + " events");
+          });
+          chip.appendChild(closeBtn);
+          chipContainer.appendChild(chip);
+        }
+      }
+
+      /* =====================================================================
+         9. RENDERING: RIGHT PANE (LIVE SECURITY EVENTS FEED)
+         Rows are kept between renders and matched by key. A new event adds one row at the top; every
+         other row, its open drawer and any focus inside it stay as they are.
+         ===================================================================== */
+      var rowCache = {};
+      var emptyCard = null;
+
+      function rowLabel(ev) {
+        var target = extractEventTarget(ev);
+        if (target.length > 120) target = target.slice(0, 120) + "…";
+        return formatRelativeTime(ev.ts) + ", " + decisionWord(rowKind(ev)) + ", " + (ev.tool_name || "unknown") + ", " + target;
+      }
+
+      function applyOpenState(row) {
+        var open = Boolean(state.expandedEventIds[row.key]);
+        row.li.classList.toggle("open", open);
+        row.toggle.setAttribute("aria-expanded", open ? "true" : "false");
+      }
+
+      function buildEventRow(ev) {
+        var key = ev.__key;
+        var drawerId = "drawer-" + safeKey(key);
+        var kind = rowKind(ev);
+        var evTone = " ev-" + kind;
+        var li = el("li", "event-entry" + evTone);
+        li.setAttribute("data-key", key);
+
+        var summaryRow = el("div", "event-summary");
+
+        // Cell 1: the one real button of the row. Its name reads the whole row.
+        var toggle = el("button", "event-toggle");
+        toggle.type = "button";
+        toggle.setAttribute("data-focus-id", "toggle:" + key);
+        toggle.setAttribute("aria-controls", drawerId);
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.appendChild(createSvg("M5.5 3l5 5-5 5", "2"));
+        var timeCell = el("span", "event-time", formatRelativeTime(ev.ts));
+        timeCell.title = ev.ts || "";
+        toggle.appendChild(timeCell);
+        summaryRow.appendChild(toggle);
+
+        // Cell 2: Decision badge
+        var decCell = el("div", "ev-dec");
+        decCell.appendChild(createDecisionBadge(kind));
+        var note = rowNote(ev);
+        if (note) decCell.appendChild(el("span", "row-note", note));
+        summaryRow.appendChild(decCell);
+
+        // Cell 3: Tool pill
+        var toolWrap = el("div", "ev-tool");
+        var toolPill = el("span", getToolPillClass(ev.tool_name), ev.tool_name || "unknown");
+        toolPill.title = ev.tool_name || "";
+        toolWrap.appendChild(toolPill);
+        summaryRow.appendChild(toolWrap);
+
+        // Cell 4: Target in monospace + redacted / injection badges
+        var targetCell = el("div", "event-target-cell");
+        var targetStr = extractEventTarget(ev);
+        var targetSpan = el("span", "event-target", targetStr);
+        targetSpan.title = targetStr;
+        targetCell.appendChild(targetSpan);
+
+        if (isRedacted(ev)) {
+          var redactFlag = el("span", "redacted-flag", "Key redacted");
+          redactFlag.title = "Secret key automatically redacted before writing to audit log";
+          targetCell.appendChild(redactFlag);
+        }
+
+        var warnings = extractWarnings(ev);
+        if (warnings.length > 0) {
+          var warnFlag = el("span", "injection-flag");
+          var warnIcon = el("span", null, "⚠");
+          warnIcon.setAttribute("aria-hidden", "true");
+          warnFlag.appendChild(warnIcon);
+          warnFlag.appendChild(el("span", null, "Injection (" + warnings.length + ")"));
+          warnFlag.title = "Untrusted tool output matched prompt injection marker(s). Logged, not blocked.";
+          targetCell.appendChild(warnFlag);
+        }
+        summaryRow.appendChild(targetCell);
+
+        // Cell 5: Rule link, a sibling of the toggle, never inside it
+        var ruleCell = el("div", "event-rule-cell");
+        var ruleIdStr = normalizeRuleId(ev);
+        if (kind === "flagged") {
+          // The scan's own rule: the marker that matched. The Pre rule is in the drawer.
+          var scanMarks = extractWarnings(ev);
+          var scanText = "scan: " + scanMarks[0].marker + (scanMarks.length > 1 ? " +" + (scanMarks.length - 1) : "");
+          var scanSpan = el("span", "rule-text", scanText);
+          scanSpan.title = scanText;
+          ruleCell.appendChild(scanSpan);
+        } else if (!ruleIdStr) {
+          ruleCell.appendChild(el("span", "rule-text", "—"));
+        } else {
+          var ruleBtn = el("button", "rule-link-btn", ruleIdStr);
+          ruleBtn.type = "button";
+          ruleBtn.setAttribute("data-focus-id", "rulelink:" + key);
+          ruleBtn.setAttribute("aria-label", "Filter by rule " + ruleIdStr);
+          ruleBtn.title = "Filter by rule '" + ruleIdStr + "' and highlight it in the policy list";
+          ruleBtn.addEventListener("click", function () {
+            filterByRule(ruleIdStr);
+          });
+          ruleCell.appendChild(ruleBtn);
+        }
+        summaryRow.appendChild(ruleCell);
+        li.appendChild(summaryRow);
+
+        // Expanded Drawer
+        var expanded = el("div", "event-expanded");
+        expanded.id = drawerId;
+        expanded.setAttribute("role", "region");
+        var shortTarget = targetStr.length > 80 ? targetStr.slice(0, 80) + "…" : targetStr;
+        expanded.setAttribute("aria-label", "Details for " + (ev.tool_name || "unknown") + " " + shortTarget);
+        var metaGrid = el("div", "expanded-grid");
+        metaGrid.appendChild(makeKvBox("Timestamp (UTC)", ev.ts || "—"));
+        metaGrid.appendChild(makeKvBox("Session ID", ev.session_id || "—"));
+        metaGrid.appendChild(makeKvBox("Tool Call ID / Step", (ev.tool_use_id || "—") + " · step " + (ev.step !== undefined ? ev.step : "—")));
+        metaGrid.appendChild(makeKvBox("Event Type / Rule", (ev.event || "—") + " · " + (ruleIdStr || "—")));
+        expanded.appendChild(metaGrid);
+
+        if (ev.event === "result") {
+          var moments = el("div", "detail-block");
+          moments.appendChild(el("div", "detail-block-label", "Two moments"));
+          moments.appendChild(el("div", null, ev.decision === "unknown"
+            ? "Before the call: no record"
+            : "Before the call: " + decisionWord(ev.decision) + " (" + (ruleIdStr || "no rule") + ")"));
+          if (warnings.length > 0) {
+            moments.appendChild(el("div", null, "After the call: the reply matched " + warnings.length +
+              " injection phrase" + (warnings.length === 1 ? "" : "s") + "; " +
+              (ev.warned === true ? "Claude was warned (note sent to Claude)" : "logged only")));
+          }
+          if (ev.tainted === true && (warnings.length > 0 || ev.rule === "ask-after-injection")) {
+            moments.appendChild(el("div", null, "Session marked: every step except reading and editing local files asks until the session ends"));
+          }
+          expanded.appendChild(moments);
+        }
+
+        if (ev.reason) {
+          var reasonBlock = el("div", "detail-block");
+          reasonBlock.appendChild(el("div", "detail-block-label", "Decision Reason"));
+          reasonBlock.appendChild(el("pre", "code-pre", ev.reason));
+          expanded.appendChild(reasonBlock);
+        }
+
+        if (warnings.length > 0) {
+          var warnBox = el("div", "warning-box");
+          warnBox.appendChild(el("div", "detail-block-label", "Prompt Injection Warnings (Logged, Not Blocked)"));
+          for (var wIdx = 0; wIdx < warnings.length; wIdx++) {
+            var wObj = warnings[wIdx];
+            var lineText = "• Marker: " + wObj.marker + (wObj.excerpt ? " — Excerpt: \"" + wObj.excerpt + "\"" : "");
+            warnBox.appendChild(el("div", null, lineText));
+          }
+          expanded.appendChild(warnBox);
+        }
+
+        var inputBlock = el("div", "detail-block");
+        inputBlock.appendChild(el("div", "detail-block-label", "Full Tool Input (Untrusted Log Payload — Rendered as Plain Text)"));
+        inputBlock.appendChild(el("pre", "code-pre", JSON.stringify(ev.input || {}, null, 2)));
+        expanded.appendChild(inputBlock);
+
+        if (ev.note !== undefined) {
+          var noteBlock = el("div", "detail-block");
+          noteBlock.appendChild(el("div", "detail-block-label", "Audit Note"));
+          noteBlock.appendChild(el("pre", "code-pre", String(ev.note)));
+          expanded.appendChild(noteBlock);
+        }
+        li.appendChild(expanded);
+
+        var row = { key: key, li: li, toggle: toggle, timeCell: timeCell, ev: ev, sig: JSON.stringify(ev) };
+
+        function toggleOpen() {
+          state.expandedEventIds[key] = !state.expandedEventIds[key];
+          applyOpenState(row);
+        }
+        toggle.addEventListener("click", toggleOpen);
+        // Mouse users may click anywhere on the row. A click on any control inside it is that control's own.
+        summaryRow.addEventListener("click", function (e) {
+          if (e.target.closest("button, a, select")) return;
+          toggleOpen();
+        });
+
+        applyOpenState(row);
+        refreshRowTime(row);
+        return row;
+      }
+
+      function refreshRowTime(row) {
+        var rel = formatRelativeTime(row.ev.ts);
+        if (row.timeCell.textContent !== rel) row.timeCell.textContent = rel;
+        var label = rowLabel(row.ev) + ". Details";
+        if (row.toggle.getAttribute("aria-label") !== label) row.toggle.setAttribute("aria-label", label);
+      }
+
+      function renderEvents() {
+        var listEl = document.getElementById("events-list");
+        var countEl = document.getElementById("events-count");
+
+        var cappedEvents = state.events.slice(-500);
+
+        var filtered = [];
+        for (var i = cappedEvents.length - 1; i >= 0; i--) {
+          var ev = cappedEvents[i];
+          var rId = normalizeRuleId(ev);
+          if (state.filters.decision !== "all" && rowKind(ev) !== state.filters.decision) continue;
+          if (state.filters.rule !== "all" && rId !== state.filters.rule) continue;
+          if (state.filters.tool !== "all" && ev.tool_name !== state.filters.tool) continue;
+          if (state.filters.session !== "all" && ev.session_id !== state.filters.session) continue;
+          if (state.filters.signal === "injection" && extractWarnings(ev).length === 0) continue;
+          if (state.filters.signal === "redacted" && !isRedacted(ev)) continue;
+          filtered.push(ev);
+        }
+
+        countEl.textContent = String(filtered.length);
+
+        // Drop rows that are no longer shown, and rows whose event changed under the same key.
+        var wanted = {};
+        for (var w = 0; w < filtered.length; w++) wanted[filtered[w].__key] = filtered[w];
+        for (var key in rowCache) {
+          if (!Object.prototype.hasOwnProperty.call(rowCache, key)) continue;
+          var cached = rowCache[key];
+          if (!wanted[key] || cached.sig !== JSON.stringify(wanted[key])) {
+            if (cached.li.parentNode) cached.li.parentNode.removeChild(cached.li);
+            delete rowCache[key];
+          }
+        }
+        if (emptyCard && emptyCard.parentNode) emptyCard.parentNode.removeChild(emptyCard);
+        emptyCard = null;
+
+        if (filtered.length === 0) {
+          emptyCard = el("li", "empty-feed-state");
+          if (!state.status.plugin_loaded) {
+            emptyCard.appendChild(el("h3", "empty-feed-title", state.status.plugin_detail ? "No hook writes found" : "Plugin Not Installed"));
+            emptyCard.appendChild(el("p", "empty-feed-desc", state.status.plugin_detail || "agent-guardrails is not loaded in Claude Code. Install the plugin hooks in ~/.claude/settings.json to inspect and log every tool call before execution."));
+          } else if (!state.status.log_found && state.events.length === 0) {
+            var ruleTotal = (state.policy && Array.isArray(state.policy.rules)) ? state.policy.rules.length : 0;
+            emptyCard.appendChild(el("h3", "empty-feed-title", "No Audit Log Yet"));
+            emptyCard.appendChild(el("p", "empty-feed-desc", "The guard has " + ruleTotal + " rules loaded, and no tool call has been logged yet. Run a tool in Claude Code to see it here."));
+          } else {
+            emptyCard.appendChild(el("h3", "empty-feed-title", "No Matching Events"));
+            emptyCard.appendChild(el("p", "empty-feed-desc", "No audit log lines match your active filter criteria."));
+          }
+          listEl.appendChild(emptyCard);
+          return;
+        }
+
+        // Put the rows in order without moving the ones already in place.
+        var cursor = listEl.firstChild;
+        for (var idx = 0; idx < filtered.length; idx++) {
+          var item = filtered[idx];
+          var row = rowCache[item.__key];
+          if (!row) {
+            row = buildEventRow(item);
+            rowCache[item.__key] = row;
+          } else {
+            refreshRowTime(row);
+          }
+          if (row.li === cursor) {
+            cursor = cursor.nextSibling;
+          } else {
+            listEl.insertBefore(row.li, cursor);
+          }
+        }
+      }
+
+      function refreshTimes() {
+        for (var key in rowCache) {
+          if (Object.prototype.hasOwnProperty.call(rowCache, key)) refreshRowTime(rowCache[key]);
+        }
+        renderPostureAndBanner();
+      }
+
+      function makeKvBox(label, val) {
+        var box = el("div", "kv-box");
+        box.appendChild(el("span", "kv-label", label));
+        box.appendChild(el("span", "kv-val", val));
+        return box;
+      }
+
+      /* Filters by a rule and shows it in the policy list. Focus stays on the link the person used. */
+      function filterByRule(ruleId) {
+        state.filters.rule = ruleId;
+        syncFilterControls();
+        renderAll();
+        announce("Filtered by rule " + ruleId + ": " + document.getElementById("events-count").textContent + " events");
+        var node = ruleNodes[ruleId];
+        if (node && node.li.offsetParent) {
+          node.li.scrollIntoView({ block: "nearest" });
+        }
+      }
+
+      /* =====================================================================
+         10. FULL RENDER & API POLLING (/api/status, /api/policy, /api/events)
+         ===================================================================== */
+      function focusIdOf(node) {
+        if (!node || node === document.body || !node.getAttribute) return null;
+        return node.getAttribute("data-focus-id") || node.id || null;
+      }
+
+      function findByFocusId(id) {
+        var byId = document.getElementById(id);
+        if (byId) return byId;
+        var nodes = document.querySelectorAll("[data-focus-id]");
+        for (var i = 0; i < nodes.length; i++) {
+          if (nodes[i].getAttribute("data-focus-id") === id) return nodes[i];
+        }
+        return null;
+      }
+
+      /* Safety net: what had focus, and where each list was scrolled, before a render. */
+      function captureUi() {
+        var eventsList = document.getElementById("events-list");
+        var snap = {
+          focusId: focusIdOf(document.activeElement),
+          rulesTop: document.getElementById("rules-list").scrollTop,
+          eventsTop: eventsList.scrollTop,
+          anchor: null
+        };
+        // New rows go in above the view, so a pixel offset would move the content. Hold the first
+        // row in view instead (browsers without scroll anchoring need this too).
+        if (snap.eventsTop > 0) {
+          var listTop = eventsList.getBoundingClientRect().top;
+          for (var n = eventsList.firstElementChild; n; n = n.nextElementSibling) {
+            var r = n.getBoundingClientRect();
+            if (r.bottom > listTop) { snap.anchor = { node: n, offset: r.top - listTop }; break; }
+          }
+        }
+        return snap;
+      }
+
+      function restoreUi(snap) {
+        if (snap.focusId) {
+          var target = findByFocusId(snap.focusId);
+          if (target && target !== document.activeElement) {
+            try { target.focus({ preventScroll: true }); } catch (e) { /* element can no longer take focus */ }
+          }
+        }
+        var rulesList = document.getElementById("rules-list");
+        var eventsList = document.getElementById("events-list");
+        if (rulesList.scrollTop !== snap.rulesTop) rulesList.scrollTop = snap.rulesTop;
+        if (snap.anchor && snap.anchor.node.parentNode === eventsList) {
+          var shift = (snap.anchor.node.getBoundingClientRect().top - eventsList.getBoundingClientRect().top) - snap.anchor.offset;
+          if (shift) eventsList.scrollTop += shift;
+        } else if (eventsList.scrollTop !== snap.eventsTop) {
+          eventsList.scrollTop = snap.eventsTop;
+        }
+      }
+
+      function renderAll() {
+        var snap = captureUi();
+        assignEventKeys(state.events);
+        populateDynamicFilters();
+        syncFilterControls();
+        renderPostureAndBanner();
+        renderTelemetryStrip();
+        renderRules();
+        renderEvents();
+        restoreUi(snap);
+      }
+
+      function fetchJsonWithTimeout(url, timeoutMs) {
+        return new Promise(function (resolve, reject) {
+          var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+          var timer = setTimeout(function () {
+            if (ctrl) ctrl.abort();
+            reject(new Error("timeout"));
+          }, timeoutMs || 1500);
+
+          fetch(url, ctrl ? { signal: ctrl.signal } : {})
+            .then(function (res) {
+              clearTimeout(timer);
+              if (!res.ok) throw new Error("HTTP " + res.status);
+              return res.json();
+            })
+            .then(resolve)
+            .catch(function (err) {
+              clearTimeout(timer);
+              reject(err);
+            });
+        });
+      }
+
+      /* The one-time key the server printed is in this page's own address. It is read once and sent
+         with every /api request; a page opened without it (or from a file) gets no data. */
+      var API_KEY = (function () {
+        try { return new URLSearchParams(window.location.search).get("key") || ""; } catch (e) { return ""; }
+      })();
+
+      function apiUrl(path, after) {
+        var q = [];
+        if (after !== undefined) q.push("after=" + encodeURIComponent(after));
+        if (API_KEY) q.push("key=" + encodeURIComponent(API_KEY));
+        return path + (q.length ? "?" + q.join("&") : "");
+      }
+
+      function loadAll(timeoutMs) {
+        return Promise.all([
+          fetchJsonWithTimeout(apiUrl("/api/status"), timeoutMs),
+          fetchJsonWithTimeout(apiUrl("/api/policy"), timeoutMs),
+          fetchJsonWithTimeout(apiUrl("/api/events", ""), timeoutMs)
+        ]);
+      }
+
+      /* A first load: fresh answers replace the state, with no old cursor. */
+      function applyFirstLoad(results) {
+        state.usingSample = false;
+        state.offline = false;
+        state.banner = null;
+        state.status = results[0];
+        state.statusSig = JSON.stringify(results[0]);
+        state.policy = results[1];
+        state.events = Array.isArray(results[2]) ? results[2].slice(-500) : [];
+        state.lastTimestamp = null;
+        if (state.events.length > 0) {
+          var last = state.events[state.events.length - 1];
+          state.lastTimestamp = last.cursor || last.ts || null;
+        }
+        renderAll();
+        startPollingEvents();
+      }
+
+      function initLiveOrSample() {
+        loadAll(1200).then(applyFirstLoad, function () {
+          state.usingSample = true;
+          renderAll();
+        });
+      }
+
+      /* The server stopped answering: say so, keep the last rows, and try a fresh first load every 2 s.
+         It never falls back to sample data. */
+      function goOffline() {
+        if (state.pollTimer) {
+          clearInterval(state.pollTimer);
+          state.pollTimer = null;
+        }
+        state.offline = true;
+        state.banner = {
+          level: "warning",
+          title: "Dashboard server not answering",
+          desc: "Showing the last data received; retrying every 2 s. If the server was restarted, open the new link it printed."
+        };
+        renderAll();
+        announce("Dashboard server not answering");
+        if (state.retryTimer) return;
+        var busy = false;
+        state.retryTimer = setInterval(function () {
+          if (busy) return;
+          busy = true;
+          loadAll(1500).then(function (results) {
+            clearInterval(state.retryTimer);
+            state.retryTimer = null;
+            applyFirstLoad(results);
+            announce("Dashboard server answering again");
+          }, function () {
+            busy = false;
+          });
+        }, 2000);
+      }
+
+      /* A poll renders only when something changed: a new status or new events. */
+      function startPollingEvents() {
+        if (state.pollTimer) clearInterval(state.pollTimer);
+        if (state.clockTimer) clearInterval(state.clockTimer);
+        state.clockTimer = setInterval(function () {
+          if (!state.usingSample) refreshTimes();
+        }, 30000);
+        state.pollTimer = setInterval(function () {
+          if (state.usingSample || state.offline) return;
+          Promise.all([
+            fetchJsonWithTimeout(apiUrl("/api/status"), 1500),
+            fetchJsonWithTimeout(apiUrl("/api/events", state.lastTimestamp || ""), 1500)
+          ])
+            .then(function (res) {
+              if (state.offline) return;
+              var changed = false;
+              var sig = JSON.stringify(res[0]);
+              if (sig !== state.statusSig) {
+                state.statusSig = sig;
+                state.status = res[0];
+                changed = true;
+              }
+              var newEvents = Array.isArray(res[1]) ? res[1] : [];
+              if (newEvents.length > 0) {
+                state.events = state.events.concat(newEvents).slice(-500);
+                var last = state.events[state.events.length - 1];
+                state.lastTimestamp = last.cursor || last.ts || state.lastTimestamp;
+                changed = true;
+                announce(newEvents.length + (newEvents.length === 1 ? " new event" : " new events"));
+              }
+              if (changed) renderAll();
+            }, goOffline);
+        }, 2000);
+      }
+
+      /* =====================================================================
+         11. INTERACTIVE CONTROLS, CLEAN DOWNLOAD & ?states=1 SWITCHER
+         ===================================================================== */
+      function setupRulesCollapse() {
+        var btn = document.getElementById("rules-toggle");
+        var titleText = document.getElementById("rules-title-text");
+        var body = document.getElementById("rules-body");
+        var mq = window.matchMedia ? window.matchMedia("(max-width: 768px)") : null;
+
+        function setCollapsed(collapsed) {
+          state.rulesCollapsed = collapsed;
+          btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+          body.hidden = collapsed;
+        }
+        // On a phone the rules sit behind a disclosure button, closed at first: events are what you check there.
+        function apply() {
+          if (mq && mq.matches) {
+            btn.hidden = false;
+            titleText.hidden = true;
+            setCollapsed(state.rulesCollapsed);
+          } else {
+            btn.hidden = true;
+            btn.removeAttribute("aria-expanded");
+            titleText.hidden = false;
+            body.hidden = false;
+          }
+        }
+        btn.addEventListener("click", function () { setCollapsed(!state.rulesCollapsed); });
+        if (mq) {
+          if (mq.addEventListener) mq.addEventListener("change", apply);
+          else if (mq.addListener) mq.addListener(apply);
+        }
+        apply();
+      }
+
+      function setupControls() {
+        document.getElementById("filter-decision").addEventListener("change", function (e) {
+          state.filters.decision = e.target.value;
+          renderAll();
+        });
+        document.getElementById("filter-rule").addEventListener("change", function (e) {
+          state.filters.rule = e.target.value;
+          syncFilterControls();
+          renderAll();
+        });
+        document.getElementById("filter-tool").addEventListener("change", function (e) {
+          state.filters.tool = e.target.value;
+          renderAll();
+        });
+        document.getElementById("filter-session").addEventListener("change", function (e) {
+          state.filters.session = e.target.value;
+          renderAll();
+        });
+        document.getElementById("filter-signal").addEventListener("change", function (e) {
+          state.filters.signal = e.target.value;
+          renderAll();
+        });
+        // A select that was open while new options came in catches up when it closes.
+        ["filter-rule", "filter-tool", "filter-session"].forEach(function (id) {
+          document.getElementById(id).addEventListener("blur", populateDynamicFilters);
+        });
+        document.getElementById("clear-filters").addEventListener("click", function () {
+          state.filters.decision = "all";
+          state.filters.rule = "all";
+          state.filters.tool = "all";
+          state.filters.session = "all";
+          state.filters.signal = "all";
+          syncFilterControls();
+          renderAll();
+        });
+
+        var skip = document.getElementById("skip-link");
+        skip.addEventListener("click", function (e) {
+          e.preventDefault();
+          document.getElementById("events-heading").focus();
+        });
+
+        // The visible text is the accessible name, so it always says what the click will do.
+        var themeBtn = document.getElementById("theme-toggle");
+        var themeLabel = document.getElementById("theme-label");
+        function syncThemeLabel() {
+          var current = document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+          themeLabel.textContent = current === "dark" ? "Switch to light theme" : "Switch to dark theme";
+        }
+        syncThemeLabel();
+        themeBtn.addEventListener("click", function () {
+          var current = document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+          var next = current === "dark" ? "light" : "dark";
+          document.documentElement.setAttribute("data-theme", next);
+          try { localStorage.setItem("agent-guardrails-theme", next); } catch (e) { /* storage blocked: the choice lasts until reload */ }
+          syncThemeLabel();
+        });
+
+        var dlBtn = document.getElementById("download-html-btn");
+        dlBtn.addEventListener("click", function () {
+          var blob = new Blob([PRISTINE], { type: "text/html;charset=utf-8" });
+          var url = URL.createObjectURL(blob);
+          var a = document.createElement("a");
+          a.href = url;
+          a.download = "index.html";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        });
+
+        setupRulesCollapse();
+
+        var params = new URLSearchParams(window.location.search);
+        if (params.get("states") === "1") {
+          var switcher = document.getElementById("state-switcher");
+          var btnContainer = document.getElementById("state-buttons");
+          switcher.classList.add("visible");
+
+          for (var i = 0; i < PREVIEW_STATES.length; i++) {
+            (function (stObj) {
+              var btn = el("button", "state-btn", stObj.label);
+              btn.type = "button";
+              btn.setAttribute("data-state-id", stObj.id);
+              btn.setAttribute("aria-pressed", stObj.id === state.activePreviewState ? "true" : "false");
+              btn.addEventListener("click", function () {
+                state.activePreviewState = stObj.id;
+                state.filters = { decision: "all", rule: "all", tool: "all", session: "all", signal: "all" };
+                stObj.apply();
+                var allBtns = btnContainer.querySelectorAll(".state-btn");
+                for (var k = 0; k < allBtns.length; k++) {
+                  allBtns[k].setAttribute("aria-pressed", allBtns[k].getAttribute("data-state-id") === stObj.id ? "true" : "false");
+                }
+                renderAll();
+              });
+              btnContainer.appendChild(btn);
+            })(PREVIEW_STATES[i]);
+          }
+        }
+      }
+
+      setupControls();
+      renderAll();
+      initLiveOrSample();
+    })();
+  </script>
+</body>
+</html>
