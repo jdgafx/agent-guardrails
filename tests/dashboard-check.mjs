@@ -285,6 +285,28 @@ for (const [touch, min, w] of [[false, 24, 1440], [true, 44, 390]]) {
   await ctx.close();
 }
 
+// 14. T-033: the sample rows as the viewer sees them: the marked session shows its labels, an old line shows neither
+{
+  const { ctx, page } = await open();
+  const rows = await page.evaluate(() => [...document.querySelectorAll("#events-list > li.event-entry")].map((li) => ({
+    tool: (li.querySelector(".event-tool-pill") || {}).textContent,
+    chip: (li.querySelector(".decision-badge") || {}).textContent,
+    note: (li.querySelector(".row-note") || {}).textContent || null,
+    rule: (li.querySelector(".event-rule-cell") || {}).textContent.trim(),
+    inj: !!li.querySelector(".injection-flag"),
+    text: li.innerText,
+  })));
+  const marked = rows.find((r) => r.tool === "WebFetch" && r.note && r.note.includes("session marked"));
+  check("sample WebFetch row of the marked session: Flagged, injection badge, 'warned Claude' and 'session marked'",
+    !!marked && marked.chip === "Flagged" && marked.inj && marked.note === "warned Claude \u00b7 session marked", JSON.stringify(marked));
+  const asked = rows.find((r) => r.tool === "mcp__github__create_issue" && r.chip === "Ask");
+  check("sample ask-after-injection row shows Ask and that rule", !!asked && asked.rule === "ask-after-injection", JSON.stringify(asked));
+  const old = rows.find((r) => r.tool === "WebFetch" && r.inj && r !== marked);
+  check("an old line (warnings, no warned field) shows 'logged only' and neither 'warned Claude' nor 'session marked'",
+    !!old && old.note === "logged only" && !/warned Claude|session marked/.test(old.text), JSON.stringify(old));
+  await ctx.close();
+}
+
 await browser.close();
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failed} of ${results.length} checks passed`);
