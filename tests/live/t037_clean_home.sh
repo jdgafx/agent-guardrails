@@ -3,6 +3,11 @@
 # `claude` CLI and a real API key for one Haiku call.
 #
 #   python3 <kit>/with-secret.py <key file>=ANTHROPIC_API_KEY -- bash tests/live/t037_clean_home.sh <branch>
+#   python3 <kit>/with-secret.py openrouter.env=SIGNIN_ENV -- bash tests/live/t037_clean_home.sh <branch>
+#
+# The second form takes a sign-in file that holds `export ANTHROPIC_BASE_URL=... ANTHROPIC_AUTH_TOKEN=...
+# ANTHROPIC_API_KEY=...` lines (with-secret.py puts its text in SIGNIN_ENV). The three values go to the
+# one `claude -p` call only and are scrubbed from the evidence file.
 #
 # <branch> is a branch of github.com/jdgafx/agent-guardrails that holds version 0.2.0. A throwaway
 # HOME, an empty cwd and `env -i` mean no clone, no PYTHONPATH and no sign-in is reachable. The
@@ -12,8 +17,12 @@ set -u
 BRANCH=${1:?usage: t037_clean_home.sh <branch> [evidence file]}
 EVIDENCE=${2:-/home/chris2/factory-hq/evidence/agent-guardrails-T-037/live-run.txt}
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
-API_KEY=${ANTHROPIC_API_KEY:?run through with-secret.py}
-unset ANTHROPIC_API_KEY
+if [ -n "${SIGNIN_ENV:-}" ]; then eval "$SIGNIN_ENV"; unset SIGNIN_ENV; fi
+API_KEY=${ANTHROPIC_API_KEY:-}
+AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-}
+BASE_URL=${ANTHROPIC_BASE_URL:-}
+[ -n "$API_KEY$AUTH_TOKEN" ] || { echo "run through with-secret.py" >&2; exit 2; }
+unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL
 CLAUDE_DIR=$(dirname "$(command -v claude)")
 T=$(mktemp -d)
 mkdir -p "$T/home" "$T/empty"
@@ -56,8 +65,11 @@ check test "$(named)" = "$CACHE/0.2.0"
 say "== 3. one real claude -p session, one ls call"
 OUT=$T/session.json
 (cd "$T/empty" && env -i PATH="/usr/bin:/bin:$CLAUDE_DIR" HOME="$T/home" bash -c \
-  'read -r ANTHROPIC_API_KEY <&3; export ANTHROPIC_API_KEY; exec claude -p "Run the shell command ls and nothing else." --allowedTools "Bash(ls)" --output-format json --model haiku' \
-  3<<<"$API_KEY" >"$OUT" 2>>"$LOG")
+  'read -r ANTHROPIC_API_KEY <&3; read -r ANTHROPIC_AUTH_TOKEN <&3; read -r ANTHROPIC_BASE_URL <&3
+   export ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL
+   for v in ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN ANTHROPIC_BASE_URL; do [ -n "${!v}" ] || unset $v; done
+   exec claude -p "Run the shell command ls and nothing else." --allowedTools "Bash(ls)" --output-format json --model haiku' \
+  3<<<"$API_KEY"$'\n'"$AUTH_TOKEN"$'\n'"$BASE_URL" >"$OUT" 2>>"$LOG")
 SESSION=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["session_id"])' "$OUT" 2>>"$LOG")
 say "session_id: $SESSION"
 check test -n "$SESSION"
@@ -93,16 +105,16 @@ check python3 -c 'import json,sys; p=json.load(open(sys.argv[1])); sys.exit(0 if
 say "== 6. case 28: the saved evidence holds neither key"
 mkdir -p "$(dirname "$EVIDENCE")"
 cp "$LOG" "$EVIDENCE.tmp"
-AK=$API_KEY DK=$DKEY T=$T python3 - "$EVIDENCE.tmp" "$EVIDENCE" <<'PY'
+AK=$API_KEY TK=$AUTH_TOKEN DK=$DKEY T=$T python3 - "$EVIDENCE.tmp" "$EVIDENCE" <<'PY'
 import os, sys
 text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
-for var, mark in (("AK", "[REDACTED]"), ("DK", "[REDACTED]")):
+for var, mark in (("AK", "[REDACTED]"), ("TK", "[REDACTED]"), ("DK", "[REDACTED]")):
     if os.environ.get(var):
         text = text.replace(os.environ[var], mark)
 text = text.replace(os.environ["T"], "$T")
 open(sys.argv[2], "w", encoding="utf-8").write(text)
 os.remove(sys.argv[1])
 PY
-if grep -qF -e "$API_KEY" -e "$DKEY" "$EVIDENCE"; then say "FAIL: a key is in the evidence file"; FAILED=1; else say "ok:   no key in $EVIDENCE"; fi
+if grep -qF -e "${API_KEY:-no-key}" -e "${AUTH_TOKEN:-no-token}" -e "${DKEY:-no-dkey}" "$EVIDENCE"; then say "FAIL: a key is in the evidence file"; FAILED=1; else say "ok:   no key in $EVIDENCE"; fi
 echo "RESULT: $([ $FAILED = 0 ] && echo PASS || echo FAIL)" | tee -a "$EVIDENCE"
 exit $FAILED
