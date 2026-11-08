@@ -8,7 +8,7 @@ Short forms used below: **Pre** and **Post** are the two scripts, `hooks/pre_too
 
 - **Problem.** An agent that runs commands and edits files can do something destructive or expose a secret by mistake, and Claude Code is not known to keep a per-call record of what a guard allowed, asked or denied (not checked).
 - **Goals.** Deny the commands and file names that `policy.json` lists, in the listed spellings. Ask a person before the commands `policy.json` lists as ask. Keep a redacted log. Tell Claude and the person when a tool result holds injection phrases, and make shell, web and MCP steps ask for the rest of a session that read such text from an outside source.
-- **Non-goals.** A spend cap, injection blocking or rewriting, an exporter, a server in the plugin or an always-on service (see "Cuts"), and protection against a determined attacker (see [THREAT_MODEL.md](THREAT_MODEL.md)).
+- **Non-goals.** A spend cap, injection blocking or rewriting, an exporter, a server that runs without you starting it or an always-on service (see "Cuts"), and protection against a determined attacker (see [THREAT_MODEL.md](THREAT_MODEL.md)).
 
 ## The pieces
 
@@ -17,7 +17,8 @@ repo (uv workspace, one monorepo)
 ├── packages/guardrails-core     the engine. Python standard library only.
 ├── packages/guardrails-plugin   the installable plugin folder: hooks/ (the two scripts and hooks.json), policy.json,
 │                                policy.schema.json, isolation/settings.local.json (the generated sandbox block, opt-in),
-│                                .claude-plugin/plugin.json, and a vendor/ copy of core.
+│                                .claude-plugin/plugin.json, dashboard.py (starts the dashboard from an install), and
+│                                vendor/ with copies of core, of the dashboard server (guardrails_dashboard/) and of the page (index.html).
 ├── packages/guardrails-demo     make demo: runs fixtures through the real hook scripts.
 └── packages/guardrails-dashboard  make dashboard: the local read-only server for index.html.
 tests/                           unit, end-to-end and acceptance tests (pytest).
@@ -25,7 +26,7 @@ pyproject.toml, uv.lock          the uv workspace, the ruff settings, Python 3.9
 .github/workflows/ci.yml         CI: vendored copy, lint, tests, demo, manifest parse.
 .claude-plugin/marketplace.json  lets /plugin marketplace add use this repo as a source.
 Makefile                         build, lint, test, demo, dashboard, isolation (writes the sandbox block).
-tests/live/                      t014_probe.py: real claude -p sessions for the isolation layer (not in make test).
+tests/live/                      t014_probe.py: real claude -p sessions for the isolation layer; t037_clean_home.sh: a clean-HOME install and dashboard run (not in make test).
 index.html                       the static dashboard page (sample data unless a server answers /api; `make dashboard` runs one).
 README.md, GLOSSARY.md, docs/    the documents. LICENSE: MIT.
 ```
@@ -129,20 +130,32 @@ So the plugin cannot depend on a package from the workspace. Options considered:
 
 | Option | Why not |
 |--------|---------|
-| `pip install guardrails-core` at install time | A plugin install is expected to copy the folder with no package-manager step (not confirmed; see above). It would also need network access, which the README says the plugin does not use ("No network: the plugin opens no connection, and the dashboard listens on this computer only. No pip install."). |
+| `pip install guardrails-core` at install time | A plugin install is expected to copy the folder with no package-manager step (not confirmed; see above). It would also need network access, which the README says the hooks do not use. |
 | A venv inside the plugin | Not portable between machines: a venv holds absolute paths and compiled files for one machine. |
 | A `SessionStart` hook that builds the code in the data folder | Not built: it adds a start-up step that can fail before the guard exists, and the committed copy needs none. |
 | One big file written by hand | Hard to test and review as one unit. |
 | One big file generated from core and drift-checked like `vendor/` | Would work. Not chosen: it is the same copy-and-check idea with a harder file to read in a diff. |
 | A symlink or a git submodule to core | Not used: a link that points outside the plugin folder may not survive an install that copies the folder (not checked), and the committed copy needs no such assumption. |
 | Put all the code inside the plugin folder (no separate core package, no copy) | Would work with no copy and no drift check. This is a scope decision, not a technical one: the brief for this project (not in this repo) asks for a core package, a plugin and a demo (the acceptance test `tests/acceptance/test_t001_done.py` checks that those folders exist). The price is the two gaps below. |
-| **Vendor core into the plugin** | Chosen. `make build` deletes `packages/guardrails-plugin/vendor/guardrails_core/` and copies `guardrails-core/src/guardrails_core/*.py` into it (a hand edit in `vendor/` is lost; a file deleted from core disappears from `vendor/` too). The hook adds `vendor/` to `sys.path`. |
+| **Vendor core into the plugin** | Chosen. `make build` deletes `packages/guardrails-plugin/vendor/guardrails_core/` and copies `guardrails-core/src/guardrails_core/*.py` into it (a hand edit in `vendor/` is lost; a file deleted from core disappears from `vendor/` too). It makes two more copies the same way: `__init__.py` and `server.py` of the dashboard into `vendor/guardrails_dashboard/`, and the root `index.html` into `vendor/index.html`. The hook adds `vendor/` to `sys.path`. |
 
 The vendored copy is **committed**, so `claude --plugin-dir` works from a fresh clone with no build step. Two checks look for a stale copy, and each has a gap:
-- A unit test compares every vendored file byte for byte with core. `make test` runs `make build` first, which refreshes the copy, so under `make test` this test cannot fail. It can fail only when you run `pytest` directly.
+- A unit test compares every vendored file byte for byte with its source (core, the two dashboard files and the page). `make test` runs `make build` first, which refreshes the copy, so under `make test` this test cannot fail. It can fail only when you run `pytest` directly.
 - CI runs `make build` and then fails if `git status --porcelain` lists anything under the vendor folder, new untracked files included (before T-009 it ran `git diff`, which ignores files git does not track yet), so a new core module whose vendored copy was never added to git fails CI instead of reaching a fresh clone. There its import would fail and every call would get `ask`. A local `make test` runs `make build` first, so it cannot see drift; CI runs the check before `make test`. After `make build`, run `git status` and add new files.
 
 Cost: two copies of the same code in git, and the CI gap above. Gain: the plugin needs only `python3` on PATH and no install step.
+
+## Decision: the dashboard ships in the plugin (T-037)
+
+T-032 kept server code out of the plugin: the server was never copied into it, and an install would have carried an unused server. That reasoning is reversed. A person who installs from the marketplace has no clone, so the copy inside the install is the only way for them to run the dashboard, and the code is used. It runs only when the person starts it (`dashboard.py`, from the start command in the README), on 127.0.0.1, behind the one-time key.
+
+How the install picks what it shows:
+- Claude Code keeps old version folders on disk. The copy that serves is the one named in `installed_plugins.json` (key `agent-guardrails@agent-guardrails`; the file's format is Claude Code's, not documented, and only the parts the tests use are read). A copy the start command reached first hands over to it, so one version runs from start to end.
+- Only a version folder of this plugin's own cache folder is ever run. A record that names any other place, or a file in a shape the code does not know, gives a warning and the started copy's policy, not an exit.
+- The log is read from the data folder Claude Code gives that install (`plugins/data/agent-guardrails-agent-guardrails`), never from another install's folder.
+- If the version in force is older than 0.2.0 it does not carry the dashboard, and the command says to update instead of showing rules that are not in force.
+
+The cost: about 150 KB more in the plugin folder, and code that an agent could replace in the other version folders (see limit 7 in [THREAT_MODEL.md](THREAT_MODEL.md)).
 
 ## How this relates to Claude Code's own controls
 
@@ -225,7 +238,8 @@ What the layer does not do is in the README and in THREAT_MODEL ("Isolation (opt
 | CI fails on a vendored file git does not track | `test_case_22_ci_check_sees_an_untracked_vendored_file` |
 | `hooks.json` sets `onFailure: block` and a 10-second timeout on the Pre hook | `test_pre_tool_use_hook_blocks_on_failure` (checks the setting, not the blocking; the Post hook has the same timeout and no `onFailure`, which is not tested) |
 | Log is redacted, private, truncated | `test_audit_line_is_redacted_private_and_truncated` |
-| Vendored copy equals core | `test_vendored_copy_matches_core` (cannot fail under `make test`; see "Decision: vendoring") |
+| Vendored copy equals core | `test_vendored_copy_matches_core` and `test_vendored_dashboard_and_page_match_their_sources` (cannot fail under `make test`; see "Decision: vendoring") |
+| The dashboard runs from a marketplace install: the copy in Claude Code's install record serves, the data folder is that install's own, a record that cannot be read warns, and code outside the plugin's cache is never run | `tests/e2e/test_t037_plugin_dashboard.py`, one test per case of its design; `tests/live/t037_clean_home.sh` runs the same on a clean HOME against the real marketplace (by hand; not in `make test`) |
 
 Not tested: Claude Code actually blocking on `onFailure`; a hook timeout; bypass mode; parallel appends; a log write that fails while the memo works; a failing Post script; Claude Code's sandbox and `permissions.deny` as a barrier for Bash writes to the guard's files (the sandbox's read masks are tested by `tests/live/t014_probe.py`); that Claude Code sends `cwd` with every hook call.
 
@@ -274,7 +288,7 @@ Each row points to where the reasons are written.
 - **No spend cap.** A hook input has no cost field. A cap estimated from the session transcript (its path is in the hook input) was not attempted.
 - **No injection blocking or rewriting.** A phrase match has false positives, and rewriting tool output means the model sees text that differs from the tool's real output, which the log would not show. The scan tells Claude and the person, and marks the session when the tool reads outside content; it never edits or hides the result. It is a signal, not a shield.
 - **No OpenTelemetry exporter.** The log uses OpenTelemetry's field names (`gen_ai.tool.name` and two more) so an exporter could read it later. Nothing is sent anywhere.
-- **One static dashboard page; the plugin has no server.** The repo ships `index.html`, a single self-contained static dashboard page with no runtime dependencies. It asks for `/api/status`, `/api/policy` and `/api/events` and shows the policy and the audit log from them; if those do not answer (for example when you open the file by double-click), it shows sample data. `packages/guardrails-dashboard` (`make dashboard`) serves the page and `/api` on demand: read-only, on 127.0.0.1 only, and only to a request that carries the one-time key it prints at start. The plugin itself has no server and opens no port, so with the plugin alone the page shows sample data. The log itself stays a JSONL file you can `grep` and `jq`.
+- **One static dashboard page; a server only when you start it.** The repo ships `index.html`, a single self-contained static dashboard page with no runtime dependencies. It asks for `/api/status`, `/api/policy` and `/api/events` and shows the policy and the audit log from them; if those do not answer (for example when you open the file by double-click), it shows sample data. `packages/guardrails-dashboard` serves the page and `/api` on demand: read-only, on 127.0.0.1 only, and only to a request that carries the one-time key it prints at start. From a clone, `make dashboard` starts it. A plugin install carries a copy of the server and the page (see "Decision: dashboard in the plugin") and `dashboard.py` starts it, but it runs only when you start it, and the hooks open no port. The log itself stays a JSONL file you can `grep` and `jq`.
 
 ### Known gaps
 

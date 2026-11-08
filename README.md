@@ -7,9 +7,39 @@ It denies the file and MCP tool calls its rules list as dangerous, asks you abou
 
 Alternatives set aside, one line each (full reasons: [ARCHITECTURE](docs/ARCHITECTURE.md), "Alternatives at a glance"). An allowlist would block every command not listed. A deny on every internal error would stop all work, so an error asks. Blocking injected text has false positives, and rewriting it makes the model see text that differs from the tool's real output, so it is scanned, Claude is told, and a hit from an outside source marks the session. Claude Code's own `permissions.deny` and sandbox show no per-rule reason and are not known to keep a per-call decision log (not checked), and they can be used together with this plugin. Isolation (a container or a separate account) is the stronger control for what the rules cannot see, and was not weighed against this plugin; this plugin has an opt-in layer for shell reads of secret files, built on Claude Code's own sandbox (see "Isolation (opt-in)"). A user's policy file is merged into the shipped policy and can only add (one exception: `trusted_tools`, see "Change the rules"): a file that could replace or loosen the shipped rules would let the agent switch the guard off (a full copy that replaced the shipped policy was the old design). `pip` for the engine would need a package-manager step that a plugin install is not expected to run, and a venv is not portable between machines, so the engine is copied in. A small shell tokeniser in place of the regexes was not tried (it would catch quoted flags; see "What this does not do"). The step is counted after the rules, so a deny stays a deny when the counter cannot be written. A built-in minimum deny list for a broken shipped policy is not built.
 
-It uses only the Python standard library. No API key. No network: the plugin opens no connection, and the dashboard listens on this computer only. No pip install.
+It uses only the Python standard library. No API key, no account, no pip install. The hooks open no network connection and no port; the dashboard, when you start it, listens on 127.0.0.1 only and answers only with its key.
 
-Dashboard: run `make dashboard` from a clone, then open the link it prints (`http://127.0.0.1:8765/?key=...`) to see your real rules and log; press Ctrl-C to stop it. The key in that link is new at every start, and the server refuses every request without it, so other login accounts on this computer are refused and an old bookmark stops working. Without make: `PYTHONPATH=packages/guardrails-core/src:packages/guardrails-dashboard/src python3 -m guardrails_dashboard` (options `--port N`, `--data FOLDER`). A double-clicked `index.html` shows a sample log; add `?states=1` to the address to preview every state.
+Dashboard: with the plugin installed, start it as "Get started" says. From a clone, run `make dashboard`, then open the link it prints (`http://127.0.0.1:8765/?key=...`) to see your real rules and log; press Ctrl-C to stop it. The key in that link is new at every start, and the server refuses every request without it, so other login accounts on this computer are refused and an old bookmark stops working. Without make: `PYTHONPATH=packages/guardrails-core/src:packages/guardrails-dashboard/src python3 -m guardrails_dashboard` (options `--port N`, `--data FOLDER`). A double-clicked `index.html` shows a sample log; add `?states=1` to the address to preview every state.
+
+## Get started
+
+Two commands install the plugin, you use Claude Code once, and one more command shows what it did.
+
+1. Install it. Run both in a terminal:
+
+```bash
+claude plugin marketplace add jdgafx/agent-guardrails
+claude plugin install agent-guardrails@agent-guardrails
+```
+
+2. Use Claude Code once. The hooks write the log on its first tool call.
+
+3. Start the dashboard. Run this in a terminal (bash or zsh), with nothing else installed:
+
+```bash
+(for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/plugins/cache/agent-guardrails/agent-guardrails/*/dashboard.py; do [ -f "$f" ] && exec python3 "$f"; done; echo "No agent-guardrails dashboard in ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/cache/agent-guardrails/agent-guardrails/. Install the plugin, or update it to 0.2.0 or later (see Get started)." >&2; exit 1)
+```
+
+Open the link it prints. Ctrl-C stops it. Options go after `"$f"`, for example `--port 8766` or `--data FOLDER`. The page shows the rules of your install and the rows of your own sessions.
+
+Already on 0.1.0? Update first:
+
+```bash
+claude plugin marketplace update agent-guardrails
+claude plugin update agent-guardrails@agent-guardrails
+```
+
+No account and no sign-up for the plugin or the dashboard: the dashboard reads the log the plugin writes on your own computer, and neither the plugin nor the dashboard sends anything off it.
 
 ## The seven controls
 
@@ -292,10 +322,10 @@ T-006 to T-009 below are work-item ids from the project's own tracker (they are 
 make lint     # ruff
 make test     # unit + end-to-end + acceptance tests (`uv run pytest`); runs make build first
 make demo     # the table above
-make build    # delete vendor/guardrails_core and re-copy core's *.py files into it
+make build    # re-copy core, the dashboard server and index.html into vendor/
 ```
 
-Needs [uv](https://docs.astral.sh/uv/) for `make lint` and `make test`. "Core" is `packages/guardrails-core`, the engine. "Vendor" is its copy in `packages/guardrails-plugin/vendor/`. `make test` includes the doc tests, so an edit to README, GLOSSARY or docs/ can fail it. Run `make build` after you edit core, commit the result, and run `git status` to add any new file under `vendor/`. A direct `uv run pytest` fails if the copy drifts; `make test` rebuilds the copy first, so it cannot catch this. CI runs `make build` and fails if the status of `packages/guardrails-plugin/vendor` shows any change, a new file git does not track yet included.
+Needs [uv](https://docs.astral.sh/uv/) for `make lint` and `make test`. "Core" is `packages/guardrails-core`, the engine. "Vendor" is `packages/guardrails-plugin/vendor/`, which holds copies of core, the dashboard server (`guardrails_dashboard`) and the page (`index.html`). `make test` includes the doc tests, so an edit to README, GLOSSARY or docs/ can fail it. Run `make build` after you edit core, commit the result, and run `git status` to add any new file under `vendor/`. A direct `uv run pytest` fails if the copy drifts; `make test` rebuilds the copy first, so it cannot catch this. CI runs `make build` and fails if the status of `packages/guardrails-plugin/vendor` shows any change, a new file git does not track yet included.
 
 More: [ARCHITECTURE](docs/ARCHITECTURE.md) · [THREAT_MODEL](docs/THREAT_MODEL.md) · [GLOSSARY](GLOSSARY.md)
 

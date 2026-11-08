@@ -239,6 +239,17 @@ def test_vendored_copy_matches_core():
         assert filecmp.cmp(core / n, vend / n, shallow=False), n + " differs: run make build"
 
 
+def test_vendored_dashboard_and_page_match_their_sources():
+    src = ROOT / "packages" / "guardrails-dashboard" / "src" / "guardrails_dashboard"
+    vend = PLUGIN / "vendor" / "guardrails_dashboard"
+    names = sorted(p.name for p in vend.glob("*.py"))
+    assert names == ["__init__.py", "server.py"], "run make build"
+    for n in ("__init__.py", "server.py"):
+        assert filecmp.cmp(src / n, vend / n, shallow=False), n + " differs: run make build"
+    page = filecmp.cmp(ROOT / "index.html", PLUGIN / "vendor" / "index.html", shallow=False)
+    assert page, "vendor/index.html differs from index.html: run make build"
+
+
 def test_policy_path_env_is_merged_into_the_shipped_policy(tmp_path, monkeypatch):
     p = tmp_path / "p.json"
     p.write_text(json.dumps(dict(POLICY, step_cap={"max_calls": 3})))

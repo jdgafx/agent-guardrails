@@ -1,6 +1,6 @@
 {
   "name": "agent-guardrails",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Policy hooks for Claude Code: deny, ask or allow each tool call, step cap, redacted audit log, untrusted-output scan.",
   "author": { "name": "Chris Gentile" },
   "license": "MIT"

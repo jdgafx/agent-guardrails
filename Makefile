@@ -2,12 +2,17 @@
 
 CORE_SRC := packages/guardrails-core/src/guardrails_core
 VENDOR := packages/guardrails-plugin/vendor/guardrails_core
+DASH_SRC := packages/guardrails-dashboard/src/guardrails_dashboard
+DASH_VENDOR := packages/guardrails-plugin/vendor/guardrails_dashboard
 
-# Vendoring: copy core into the plugin so the plugin folder works on its own, with stock python3.
+# Vendoring: copy core, the dashboard server and its page into the plugin so the plugin folder
+# works on its own, with stock python3. (__main__.py is the clone entry and is not copied.)
 build:
-	rm -rf $(VENDOR)
-	mkdir -p $(VENDOR)
+	rm -rf $(VENDOR) $(DASH_VENDOR) packages/guardrails-plugin/vendor/index.html
+	mkdir -p $(VENDOR) $(DASH_VENDOR)
 	cp $(CORE_SRC)/*.py $(VENDOR)/
+	cp $(DASH_SRC)/__init__.py $(DASH_SRC)/server.py $(DASH_VENDOR)/
+	cp index.html packages/guardrails-plugin/vendor/index.html
 	find packages -name __pycache__ -prune -exec rm -rf {} +
 
 # The sandbox settings block for opt-in isolation, generated from policy.json. Run it after the
