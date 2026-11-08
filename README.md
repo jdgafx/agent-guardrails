@@ -1,14 +1,10 @@
-# agent-guardrails
+# agent-guardrails [![CI](https://github.com/jdgafx/agent-guardrails/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jdgafx/agent-guardrails/actions/workflows/ci.yml)
 
-[![CI](https://github.com/jdgafx/agent-guardrails/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jdgafx/agent-guardrails/actions/workflows/ci.yml)
-
-A Claude Code plugin that checks each tool call the agent makes before it runs, and answers deny, ask or allow from a list of rules in `policy.json`. It writes a log of what it denied, asked and let run. It is for developers and security people who let Claude Code touch files, a shell and MCP tools, and want the dangerous calls stopped or shown to a person first. It is a rule check on tool calls, not a sandbox.
+A Claude Code plugin that checks each tool call the agent makes before it runs, answers deny, ask or allow from the rules in `policy.json`, and logs what it did. It is for developers and security people who let Claude Code touch files, a shell and MCP tools. It is a rule check on tool calls, not a sandbox.
 
 It uses only the Python standard library. No API key, no account, no pip install. The hooks open no network connection and no port; the dashboard, when you start it, listens on 127.0.0.1 only and answers only with its key.
 
 ## Get started
-
-Two commands install the plugin, you use Claude Code once, and one more command shows what it did.
 
 1. Install it. Run both in a terminal:
 
@@ -25,9 +21,9 @@ claude plugin install agent-guardrails@agent-guardrails
 (for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/plugins/cache/agent-guardrails/agent-guardrails/*/dashboard.py; do [ -f "$f" ] && exec python3 "$f"; done; echo "No agent-guardrails dashboard in ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/cache/agent-guardrails/agent-guardrails/. Install the plugin, or update it to 0.2.0 or later (see Get started)." >&2; exit 1)
 ```
 
-Open the link it prints. Ctrl-C stops it. Options go after `"$f"`, for example `--port 8766` or `--data FOLDER`. The page shows the rules of your install and the rows of your own sessions.
+Open the link it prints. Ctrl-C stops it.
 
-Already on 0.1.0? Update first, then restart Claude Code so it loads the new version:
+Already on 0.1.0? Update, then restart Claude Code to load the new version:
 
 ```bash
 claude plugin marketplace update agent-guardrails
@@ -45,31 +41,27 @@ No account and no sign-up for the plugin or the dashboard: the dashboard reads t
 | **Allow** | A call that no rule matches runs. Claude Code's own permission prompts still apply. | `ls` |
 | **Flag** | Tool output with one of six injection phrases is flagged. Claude is told it is data, not instructions, and you see a notice. The text is not removed. | A page that says "ignore previous instructions" |
 | **Session mark** | After a flag on WebFetch, WebSearch or MCP read output, every step except local file tools and a few planning tools asks until the session ends. | A shell command after such a page |
-| **Step cap** | After 200 calls in one session, a call that no rule matches asks. | The 201st call |
-| **Log** | One JSON line per deny, ask and call that ran (file mode 0600). Seven key formats are replaced with `[REDACTED:kind]`. | `${CLAUDE_PLUGIN_DATA}/audit/` |
 
-A rule that would deny a shell command asks instead, so you can still say yes. An internal error in the hook on a call no rule matches asks too. Words used here are in the [glossary](GLOSSARY.md).
+A rule that would deny a shell command asks instead, so you can still say yes. After 200 calls in one session, a call that no rule matches asks. Every deny, ask and call that ran is one JSON line in the log (file mode 0600), with seven key formats replaced by `[REDACTED:kind]`. Words used here are in the [glossary](GLOSSARY.md).
 
 ## Known limits
 
-Each bullet links to its full text.
-
-- Shell text can be respelled. `cat .e""nv` matches no rule, which is why a shell match asks and does not deny. The opt-in isolation layer closes this for the listed secret files only ([limit 4](docs/THREAT_MODEL.md#4-pattern-rules-are-not-a-sandbox)).
+- Shell text can be respelled. `cat .e""nv` matches no rule, which is why a shell match asks and does not deny ([limit 4](docs/THREAT_MODEL.md#4-pattern-rules-are-not-a-sandbox)).
+- The opt-in isolation layer (off by default: it breaks `ssh` and needs user namespaces) closes respelled shell reads only for the `.env` and credential files its block names, in the project, `~` and `~/.config`. A `*.pem` or `*.key` file outside `~/.ssh` stays ask-only ([what isolation does not stop](docs/ARCHITECTURE.md#what-isolation-does-not-stop), [what it costs](docs/ARCHITECTURE.md#isolation-from-the-users-side)).
 - The injection scan is a signal, not a shield. It knows six phrases, so reworded, translated or encoded injections are not flagged ([limit 2](docs/THREAT_MODEL.md#2-the-model-can-still-follow-bad-instructions-inside-allowed-tools)).
-- WebFetch hands the hook a summary, not the page, so an injection that the summary drops or rewords is not flagged ([details](docs/THREAT_MODEL.md#known-limits-in-detail)).
+- WebFetch hands the hook a summary, not the page, so an injection that the summary drops or rewords is not flagged ([details](docs/THREAT_MODEL.md#2-the-model-can-still-follow-bad-instructions-inside-allowed-tools)).
 - Only tool calls are seen. A script the agent writes and runs, or a package you install, is not ([limit 3](docs/THREAT_MODEL.md#3-attacks-outside-claude-code)).
 - The agent can still change the guard from the shell. The write tools are denied on its files, but a shell write that names no guard path as an absolute or `~` path is not stopped ([limit 7](docs/THREAT_MODEL.md#7-the-agent-can-change-the-guard-itself)).
 - Data can leave the machine (`curl`, WebFetch) in a session that is not marked, unless a rule happens to match ([limit 8](docs/THREAT_MODEL.md#8-little-controls-what-leaves-the-machine)).
 - An ask is only as strong as the answer. In `claude -p` nobody can answer, so the call is refused; in interactive bypass mode an ask still showed a prompt in one test ([limits 5 and 6](docs/THREAT_MODEL.md#5-bypass-mode)).
 - No spend cap, and the step cap is soft ([limit 1](docs/THREAT_MODEL.md#1-no-spend-cap)).
-- A hook that cannot start or times out blocks the call only on Claude Code 2.1.295 or later; older versions probably let it through, and the plugin does not check the version ([limit 9](docs/THREAT_MODEL.md#9-old-claude-code-versions-fail-open)).
+- A hook that cannot start or times out should block the call on Claude Code 2.1.295 or later (per its release notes; not tested here); older versions probably let it through, and the plugin does not check the version ([limit 9](docs/THREAT_MODEL.md#9-old-claude-code-versions-fail-open)).
 - The log is partial, and the agent can edit it from the shell: a declined ask leaves only the decision line, and a secret in an unknown key format is written as is ([log limits](docs/THREAT_MODEL.md#limits-of-the-log)).
 - CI runs on Linux. macOS and Windows are not tested, and the plugin needs `python3` on PATH ([known gaps](docs/ARCHITECTURE.md#known-gaps)).
-- Blocking shell reads of secret files needs the opt-in isolation layer, which is off by default because it breaks `ssh` and needs user namespaces ([how it works and what it costs](docs/ARCHITECTURE.md#isolation-from-the-users-side)).
 
 Which layer holds which threat, one table: "What holds each threat" in [THREAT_MODEL](docs/THREAT_MODEL.md#what-holds-each-threat).
 
-![The dashboard on the 26 sample calls of make demo: the policy rules on the left, the security events on the right. A made-up key, no real data.](docs/screenshots/dashboard.png)
+![The dashboard on made-up sample events: the policy rules on the left, the security events on the right. A made-up key, no real data.](docs/screenshots/dashboard.png)
 
 ## Try it without Claude Code
 
