@@ -91,7 +91,7 @@ EXPECT = {
     "mcp__x__get_posts": OK, "mcp__x__list_payments": OK, "mcp__x__resend": OK,
     # known limit (#539): a read word plus a write word excuses every later write word
     "mcp__x__get_payment_then_transfer": OK, "mcp__x__list_payments_and_charge": OK,
-    "mcp__target__x": OK,
+    "mcp__target__x": OK, "mcp__jira__issue": OK,
 }
 
 # Command-like spans that are not a case: build and tooling commands, flags, placeholders.

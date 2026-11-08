@@ -229,6 +229,33 @@ def stronger(a, b):
     return b if _RANK[b.decision] > _RANK[a.decision] else a
 
 
+# ---- the mark: after an outside-content result held injection text, every tool asks except these
+
+# Tools that read or change local files, or only touch this session's own bookkeeping. Everything
+# else asks while the session is marked, including any tool Claude Code adds later: a tool nobody
+# listed is not guessed to be safe. The check reads the tool name only, never the input.
+LOCAL_TOOLS = frozenset((
+    "Read", "Write", "Edit", "MultiEdit", "NotebookEdit", "Grep", "Glob", "TodoWrite",
+    "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskOutput", "TaskStop", "ToolSearch",
+    "AskUserQuestion", "EnterPlanMode", "ExitPlanMode", "StructuredOutput", "SubagentHandback",
+    "ScheduleWakeup"))
+
+
+def after_injection(tool_name, first_row, path):
+    """The ask for a call in a marked session, or None for a local tool."""
+    if tool_name in LOCAL_TOOLS:
+        return None
+    row = first_row or {}
+    tool = str(row.get("tool", ""))[:100]
+    ids = ", ".join(str(m)[:100] for m in (row.get("markers") or [])[:20] if m)
+    what = ("a %s result held text that looks like instructions (%s)" % (tool, ids)
+            if tool and ids else "an earlier tool result held text that looks like instructions")
+    return Decision("ask", "ask-after-injection",
+                    "Earlier in this session %s. Until this session ends, every step except "
+                    "reading and editing local files asks first. Check that this step is what "
+                    "you asked for. To clear the mark, delete %s." % (what, path), None)
+
+
 # ---- guard paths: the plugin folder, the data folder and the GUARDRAILS_POLICY file
 
 Guard = namedtuple("Guard", "dirs files")

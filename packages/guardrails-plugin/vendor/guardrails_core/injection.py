@@ -1,8 +1,8 @@
-"""Injection scan: finds prompt-injection markers in tool results and logs them, never edits them.
+"""Injection scan: finds prompt-injection markers in tool results and reports them, no edits.
 
-It is a record of what came in, not a shield. Every tool is scanned unless a trusted_tools
-pattern names it. The scan reads the text values of the response, normalizes them, and runs the
-markers under one time limit.
+It is a signal, not a shield: hooks.py tells Claude and the person, and marks the session. Every
+tool is scanned unless a trusted_tools pattern names it. The scan reads the text values of the
+response, normalizes them, and runs the markers under one time limit.
 """
 import json
 import re
@@ -26,9 +26,14 @@ class ScanTimeout(BaseException):
     """Raised by the timer; a BaseException so a marker's own error handling cannot hide it."""
 
 
+def named_untrusted(policy, tool_name):
+    """True when an untrusted_tools pattern names the tool: its hits mark the session."""
+    return any(re.search(p, tool_name) for p in policy.get("untrusted_tools", []))
+
+
 def is_scanned(policy, tool_name):
     """True unless a trusted_tools pattern names the tool and no untrusted_tools pattern does."""
-    if any(re.search(p, tool_name) for p in policy.get("untrusted_tools", [])):
+    if named_untrusted(policy, tool_name):
         return True
     return not any(re.search(p, tool_name) for p in policy.get("trusted_tools", []))
 

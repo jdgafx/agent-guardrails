@@ -368,7 +368,7 @@ def test_every_spelling_of_an_own_path_gets_one_answer(tree, monkeypatch, on, su
         assert pre("Bash", {"command": cmd}, cwd, tree)[0] == "allow", (cmd, sub)
 
 
-def test_vendor_copy_equals_core_and_demo_prints_24():
+def test_vendor_copy_equals_core_and_demo_prints_26():
     core = ROOT / "packages" / "guardrails-core" / "src" / "guardrails_core"
     vendor = PLUGIN / "vendor" / "guardrails_core"
     for f in core.glob("*.py"):
@@ -377,7 +377,7 @@ def test_vendor_copy_equals_core_and_demo_prints_24():
         [sys.executable, "-m", "guardrails_demo"], capture_output=True, text=True, check=True,
         env={"PYTHONDONTWRITEBYTECODE": "1", "PATH": "/usr/bin:/bin",
              "PYTHONPATH": "%s:%s" % (core.parent, ROOT / "packages/guardrails-demo/src")}).stdout
-    assert "24 calls: 10 allow, 10 ask, 4 deny." in out
+    assert "26 calls: 11 allow, 11 ask, 4 deny." in out
     assert "All decisions matched the fixtures." in out
 
 

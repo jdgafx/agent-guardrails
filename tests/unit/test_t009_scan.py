@@ -444,7 +444,8 @@ def test_case_36_a_slow_added_marker_is_stopped(plugin, data):
 def test_case_37_warnings_found_before_the_timeout_stay(plugin, data):
     write_added(data, injection_markers=[{"id": "slow", "pattern": "(a+)+$"}])
     r, _ = post(plugin, data, "WebFetch", wf(BAD + " " + "a" * 40 + "b"), timeout=30)
-    assert r.returncode == 0 and r.stdout == ""
+    assert r.returncode == 0
+    assert "scan-timeout" in json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"]
     rec = one_result(data)
     assert IGNORE in markers(rec)
     assert any(w["warning"] == "scan-timeout" for w in rec["warnings"])
@@ -562,7 +563,7 @@ def test_case_56_result_line_keys(plugin, data):
     check_warns(plugin, data, "WebFetch", wf(BAD), {"url": "u"})
     rec = one_result(data)
     need = {"ts", "session_id", "tool_name", "tool_use_id", "event", "decision", "rule", "step",
-            "input", "result_bytes", "status", "warnings", "gen_ai.tool.name",
+            "input", "result_bytes", "status", "warnings", "warned", "tainted", "gen_ai.tool.name",
             "gen_ai.tool.call.id", "gen_ai.conversation.id"}
     assert set(rec) == need
 
@@ -575,16 +576,17 @@ def test_case_57_non_ascii_command_in_a_decision_line(plugin, data):
     assert "café" in json.loads(raw)["input"]["command"]
 
 
-def test_case_58_no_output_to_claude_and_old_acceptance_test(plugin, data, tmp_path):
+def test_case_58_note_to_claude_and_acceptance_test(plugin, data, tmp_path):
     r, _ = post(plugin, data, "Bash", bash_out(BAD), {"command": "curl x"})
-    assert r.returncode == 0 and r.stdout == ""
+    assert r.returncode == 0 and "additionalContext" in r.stdout
+    assert not (data / "state" / "t009.taint").exists()  # Bash is not an outside-content tool
     write_added(tmp_path / "d2", injection_markers=[{"id": "slow", "pattern": "(a+)+$"}])
     r, _ = post(plugin, tmp_path / "d2", "WebFetch", wf("a" * 40 + "b"), timeout=30)
-    assert r.returncode == 0 and r.stdout == ""
+    assert r.returncode == 0 and "scan-timeout" in r.stdout
     r, _ = post(plugin, tmp_path / "d3", "WebFetch", wf("a" * 200100 + " " + BAD))
     assert r.returncode == 0 and r.stdout == ""
-    acc = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
-                          "tests/acceptance/test_t001_done.py::test_4_injection_logged_not_injected"],
+    node = "tests/acceptance/test_t001_done.py::test_4_injection_logged_and_claude_told"
+    acc = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", node],
                          cwd=ROOT, capture_output=True, text=True)
     assert acc.returncode == 0, acc.stdout
 
