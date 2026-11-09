@@ -1,5 +1,4 @@
-"""A local, read-only server for index.html: the page and /api/status, /api/policy, /api/events,
-/api/tools.
+"""A local, read-only server for index.html: the page, /api/status, /api/policy, /api/events.
 
 Standard library only. It binds 127.0.0.1, answers GET only, refuses any Host header that is not
 this computer's, and refuses every route without the one-time key it makes at start. No part of a
@@ -24,11 +23,9 @@ from guardrails_core.policy import load_policy
 
 PORT = 8765
 WINDOW = 4 * 1024 * 1024  # most bytes one /api/events request reads, whatever the log size
-TOOLS_WINDOW = 64 * 1024 * 1024  # most log bytes one /api/tools request reads
 LIMIT = 500  # most lines one /api/events request returns (the page keeps 500)
 DAY_FILE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.jsonl$")
 CURSOR = re.compile(r"^(\d{4}-\d{2}-\d{2}):(\d{1,15})$")
-MCP_TOOL = re.compile(r"^mcp__(.+?)__(.+)$")  # an add-on tool server's tool: mcp__<server>__<tool>
 FOLDERS = "agent-guardrails-*"
 PLUGIN_KEY = "agent-guardrails@agent-guardrails"  # plugin@marketplace, as in installed_plugins.json
 HANDOVER = "GUARDRAILS_DASHBOARD_HANDOVER"
@@ -152,10 +149,8 @@ def _read_window(path, lower, budget):
         os.close(fd)
 
 
-def _lines(start, data, day, mid, bad=None):
-    """The complete lines of data (which begins at file offset start) as parsed objects.
-
-    A complete line that is not a JSON object is dropped; bad (a one-item list) counts it."""
+def _lines(start, data, day, mid):
+    """The complete lines of data (which begins at file offset start) as parsed objects."""
     out, pos = [], 0
     if mid:  # the window began inside a line: drop that partial first line
         cut = data.find(b"\n")
@@ -168,12 +163,10 @@ def _lines(start, data, day, mid, bad=None):
         try:
             obj = json.loads(raw)
         except ValueError:
-            obj = None
+            continue
         if isinstance(obj, dict):
             obj["cursor"] = "%s:%d" % (day, start + pos)
             out.append(obj)
-        elif bad is not None and raw.strip():
-            bad[0] += 1
 
 
 def read_events(audit_dir, after, limit=LIMIT, window=WINDOW):
@@ -201,70 +194,6 @@ def read_events(audit_dir, after, limit=LIMIT, window=WINDOW):
     return events[-limit:]
 
 
-def _blank():
-    return {"used": 0, "last": None, "denied": 0, "asked": 0}
-
-
-def _add(row, call):
-    row["used"] += call["ran"]
-    row["denied"] += call["decision"] == "deny"
-    row["asked"] += call["decision"] == "ask"
-    if call["ran"] and (row["last"] is None or call["last"] > row["last"]):
-        row["last"] = call["last"]
-
-
-def tools_used(audit_dir, window=TOOLS_WINDOW):
-    """Per tool and per add-on tool server: calls that ran, last run, calls denied, calls asked.
-
-    A call is one tool_use_id: the hooks leave a "decision" line for a deny or ask and a "result"
-    line when the tool ran, so an approved ask has two lines and a denied call one. A call counts
-    as denied or asked by its decision, and as used when a result line exists. Lines that are not
-    JSON objects with a text tool_name and a known event are skipped and counted. Reads the newest
-    window bytes of the log; truncated is true when older lines were left out.
-    """
-    bad, calls, truncated, budget = [0], {}, False, window
-    try:
-        names = sorted(n for n in os.listdir(audit_dir) if DAY_FILE.match(n))
-    except OSError:
-        names = []
-    for name in reversed(names):  # newest first, so a cut-off drops the oldest days
-        if budget <= 0:
-            truncated = True
-            break
-        start, data, mid = _read_window(os.path.join(audit_dir, name), 0, budget)
-        budget -= len(data)
-        truncated = truncated or start > 0
-        for i, ev in enumerate(_lines(start, data, name[:-6], mid, bad)):
-            tool, kind, tid = ev.get("tool_name"), ev.get("event"), ev.get("tool_use_id")
-            if not (isinstance(tool, str) and tool and kind in ("decision", "result")):
-                bad[0] += 1
-                continue
-            call = calls.setdefault(tid if isinstance(tid, str) else (name, i), {
-                "tool": tool, "ran": False, "decision": None, "last": ""})
-            if kind == "result":
-                call["ran"] = True
-                call["last"] = max(call["last"], str(ev.get("ts") or ""))
-            if kind == "decision" or call["decision"] is None:  # the decision line is the truth
-                call["decision"] = ev.get("decision")
-    plain, servers = {}, {}
-    for call in calls.values():
-        m = MCP_TOOL.match(call["tool"])
-        if m:
-            srv = servers.setdefault(m.group(1), dict(_blank(), tools={}))
-            _add(srv, call)
-            _add(srv["tools"].setdefault(m.group(2), _blank()), call)
-        else:
-            _add(plain.setdefault(call["tool"], _blank()), call)
-
-    def ranked(rows, key):
-        return sorted(rows, key=lambda r: (-r["used"], r[key]))
-    return {"tools": ranked([dict(r, tool=n) for n, r in plain.items()], "tool"),
-            "servers": ranked([dict(r, server=n, tools=ranked(
-                [dict(t, tool=tn) for tn, t in r["tools"].items()], "tool"))
-                for n, r in servers.items()], "server"),
-            "calls": len(calls), "skipped": bad[0], "truncated": truncated}
-
-
 def _json(code, obj):
     return code, "application/json", json.dumps(obj).encode("ascii")
 
@@ -282,10 +211,6 @@ def _route_policy(srv, q):
     return _json(200, policy(srv.plugin_root, srv.data))
 
 
-def _route_tools(srv, q):
-    return _json(200, tools_used(os.path.join(srv.data, "audit")))
-
-
 def _route_events(srv, q):
     try:
         return _json(200, read_events(os.path.join(srv.data, "audit"), q.get("after", [""])[0]))
@@ -294,8 +219,7 @@ def _route_events(srv, q):
 
 
 ROUTES = {"/": _route_page, "/index.html": _route_page, "/api/status": _route_status,
-          "/api/policy": _route_policy, "/api/events": _route_events,
-          "/api/tools": _route_tools}
+          "/api/policy": _route_policy, "/api/events": _route_events}
 
 
 class Handler(BaseHTTPRequestHandler):
