@@ -84,9 +84,11 @@ def _codex(p):
     if isinstance(tin, dict) and isinstance(tin.get("command"), list):
         tin = p["tool_input"] = dict(tin, command=" ".join(str(x) for x in tin["command"]))
     if p.get("tool_name") == "apply_patch" and isinstance(tin, dict):
-        files = _PATCH_FILE.findall(str(tin.get("command", "")))
-        if files:  # a patch in a shape this does not know stays as it came and is read in full
-            p["tool_name"], p["tool_input"] = "Edit", {"file_path": files[0], "file_paths": files}
+        # whichever field holds the patch; one whose files cannot be read is not guessed at
+        files = _PATCH_FILE.findall("\n".join(str(v) for v in tin.values()))
+        if not files:
+            raise ValueError("apply_patch names no file this guard can read")
+        p["tool_name"], p["tool_input"] = "Edit", {"file_path": files[0], "file_paths": files}
     return p, post
 
 
@@ -115,14 +117,17 @@ def _cursor(p):
 
 def _generic(p):
     """{"tool": name, "input": {...}} or {"command": "..."}; Claude Code's own field names work
-    too. A "result" (or "tool_response", or "error") makes it the after-the-call report."""
-    out = {k: p[k] for k in ("tool_response", "error", "hook_event_name", "cwd") if k in p}
-    if "result" in p:
+    too. A "result" (or "tool_response", or "error") that is not null makes it the
+    after-the-call report; a null one does not, so it cannot skip the check."""
+    out = {k: p[k] for k in ("tool_response", "error", "hook_event_name", "cwd")
+           if p.get(k) is not None}
+    if p.get("result") is not None:
         out["tool_response"] = p["result"]
+    tin = _obj(p.get("tool_input", p.get("input")))
+    if "command" in p:  # a top-level command is always read, whatever "input" holds
+        tin = dict(tin, command=p["command"])
     out.update(tool_name=p.get("tool_name") or p.get("tool") or ("Bash" if "command" in p else ""),
-               tool_input=_obj(p.get("tool_input", p.get("input", {"command": p["command"]}
-                                                         if "command" in p else None))),
-               session_id=p.get("session_id") or p.get("session"),
+               tool_input=tin, session_id=p.get("session_id") or p.get("session"),
                tool_use_id=p.get("tool_use_id") or p.get("id"))
     return out, "tool_response" in out or "error" in out
 

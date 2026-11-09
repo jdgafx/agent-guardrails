@@ -77,11 +77,14 @@ def _merge(path, add, cmd):
         return False
     if os.path.exists(path) and not os.path.exists(path + ".guardrails-bak"):
         shutil.copy2(path, path + ".guardrails-bak")
-    tmp = path + ".guardrails-tmp"
+    real = os.path.realpath(path)  # a linked hooks file (dotfiles) stays a link
+    tmp = real + ".guardrails-tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
         f.write("\n")
-    os.replace(tmp, path)  # the agent never reads a half-written file
+    if os.path.exists(real):
+        shutil.copymode(real, tmp)
+    os.replace(tmp, real)  # the agent never reads a half-written file
     return True
 
 
@@ -116,8 +119,9 @@ def install(agent, plugin_root, data, home=None):
         shlex.quote(os.path.join(str(plugin_root), "guard.py")), agent, shlex.quote(str(data)))
     try:
         changed = _merge(path, _cursor if agent == "cursor" else _codex, cmd)
-    except (OSError, ValueError) as e:
-        return 2, ["%s was left as it is (%s). Fix it, then run this again." % (path, e)]
+    except Exception as e:  # unreadable, not JSON, or entries in a shape this does not know
+        return 2, ["%s was left as it is (%s: %s). Fix it, then run this again."
+                   % (path, type(e).__name__, e)]
     return 0, ["%s: %s" % (path, "guard hooks added" if changed else "already wired, no change"),
                "  hook command: " + cmd,
                "  log and session marks: %s (the dashboard reads the same folder)" % data,

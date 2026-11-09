@@ -21,12 +21,17 @@ _C_FLAG = re.compile(r"-[A-Za-z]*c[A-Za-z]*")  # -c, -lc, -ic ...
 
 
 def command_of(argv):
-    """The text after the first -c style option, or None. A "-c" that belongs to a script's own
-    arguments is read as a command too: that only adds a check, it never skips one."""
-    for i, a in enumerate(argv[:-1]):
-        if _C_FLAG.fullmatch(a):
-            return argv[i + 1]
-    return None
+    """The text to check when a -c style option is there, or None.
+
+    Bash takes its command from the first word that is not an option, and an option can take a
+    value that looks like "-c" (--rcfile -c -c "cmd"). So this does not guess which word that is:
+    it returns every word that is not an option (and every word after "--"), one per line. A
+    value of -o or a script's own arguments are checked too; that only adds a check.
+    """
+    end = argv.index("--") if "--" in argv else len(argv)
+    if not any(_C_FLAG.fullmatch(a) for a in argv[:end]):
+        return None
+    return "\n".join([a for a in argv[:end] if not a.startswith(("-", "+"))] + argv[end + 1:])
 
 
 def _check(cmd):

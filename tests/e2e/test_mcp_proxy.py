@@ -212,12 +212,89 @@ def test_tools_call_in_a_batch_or_without_an_id_never_reaches_the_server(client)
     out = c.read()
     assert [m["id"] for m in out] == [7, 8] and all(m["result"]["isError"] for m in out)
     c.send({"jsonrpc": "2.0", "method": "tools/call", "params": {"name": "echo"}})
-    c.send("this is not json")
     c.ask("tools/list")
     assert c.read()["result"]["method"] == "tools/list"
-    # the server got the line that is not JSON (its own business) and tools/list, nothing else
-    assert c.seen_file.read_text().splitlines()[0] == "this is not json"
-    assert len(c.seen_file.read_text().splitlines()) == 2
+    assert [m.get("method") for m in c.seen()] == ["tools/list"]
+
+
+DENIED = '"params": {"name": "read_file", "arguments": {"path": "/home/u/.ssh/id_rsa"}}'
+
+
+@pytest.mark.parametrize("line", [
+    b'{"jsonrpc": "2.0", "id": 1, "method": "tools/call", %s,}' % DENIED.encode(),  # a comma
+    b'{"jsonrpc": "2.0", "id": 1, "method": "tools/call\xff", %s}' % DENIED.encode(),  # bad UTF-8
+    b'{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "method": "ping", %s}' % DENIED.encode(),
+    b'[[{"jsonrpc": "2.0", "id": 1, "method": "tools/call", %s}]]' % DENIED.encode(),
+    b'this is not json',
+])
+def test_a_line_the_proxy_cannot_read_strictly_never_reaches_the_server(client, line):
+    """A server with a more forgiving parser would run what this proxy did not check."""
+    c = client()
+    c.p.stdin.write(line + b"\n")
+    c.p.stdin.flush()
+    c.ask("tools/list")
+    assert c.read()["result"]["method"] == "tools/list"
+    assert c.seen_file.read_text().count("\n") == 1 and c.seen_tools() == []
+
+
+def test_the_server_gets_the_message_as_the_proxy_read_it(client):
+    c = client()
+    c.p.stdin.write(b'{"jsonrpc":"2.0",  "id":5,"method":"tools/call",'
+                    b'"params":{"name":"echo","arguments":{"t":"\\u0041"}}}\n')
+    c.p.stdin.flush()
+    assert c.read()["id"] == 5
+    assert c.seen_file.read_text().strip() == json.dumps(
+        {"jsonrpc": "2.0", "id": 5, "method": "tools/call",
+         "params": {"name": "echo", "arguments": {"t": "A"}}})
+
+
+@pytest.mark.parametrize("bad_id", [1.0, 1.5, True, None, [1], {"a": 1}, 2 ** 60])
+def test_a_call_with_an_id_that_may_not_come_back_the_same_is_refused(client, bad_id):
+    """1.0 can come back as 1: the result would then pass with no redaction and no scan."""
+    c = client()
+    c.send({"jsonrpc": "2.0", "id": bad_id, "method": "tools/call", "params": {"name": "get_key"}})
+    out = c.read()
+    assert out["result"]["isError"] is True and "request id" in text(out)[0]
+    assert c.seen_tools() == []
+
+
+def test_an_id_that_is_still_waiting_cannot_be_used_again(client):
+    c = client()
+    c.ask("initialize", {"capabilities": {"elicitation": {}}})
+    c.read()
+    call = {"jsonrpc": "2.0", "id": "x", "method": "tools/call", "params": {"name": "hang"}}
+    c.send(call)  # the test server answers "hang" like any tool; send both before reading
+    c.send(dict(call, params={"name": "get_key"}))
+    outs = [c.read(), c.read()]
+    refused = [o for o in outs if o["result"].get("isError")]
+    assert len(refused) <= 1 and all(FAKE_KEY not in json.dumps(o) for o in outs)
+
+
+def test_arguments_given_as_text_are_read_and_other_shapes_ask(client):
+    c = client()
+    n = c.ask("tools/call", {"name": "read_file",
+                             "arguments": '{"path": "/home/u/.aws/credentials"}'})
+    out = c.read()
+    assert out["id"] == n and "[deny-credential-dirs]" in text(out)[0]
+    c.ask("tools/call", {"name": "echo", "arguments": ["/home/u/.ssh/id_rsa"]})
+    assert "[guardrails-error]" in text(c.read())[0]
+    assert c.seen_tools() == []
+
+
+def test_the_question_id_cannot_be_guessed_and_an_odd_initialize_does_not_hang(client):
+    c = client()
+    n = c.ask("initialize", {"capabilities": 5})
+    assert c.read()["id"] == n
+    c.ask("initialize", {"capabilities": {"elicitation": {}}})
+    c.read()
+    c.ask("tools/call", {"name": "send_email", "arguments": {}})
+    question = c.read()
+    assert len(question["id"]) > len("guardrails-") + 16
+    # an answer under an id the proxy did not make is passed on, and approves nothing
+    c.send({"jsonrpc": "2.0", "id": "guardrails-1", "result": {"action": "accept"}})
+    assert c.read()["id"] == "guardrails-1"  # the test server answers anything that has an id
+    c.ask("tools/list")
+    assert c.read()["result"]["method"] == "tools/list" and c.seen_tools() == []
 
 
 def test_closing_the_client_ends_both_and_the_servers_exit_code_is_kept(client):

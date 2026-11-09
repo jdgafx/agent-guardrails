@@ -37,6 +37,7 @@ AGENTS = (
 CRED_PATHS = ("~/.ssh", "~/.aws", "~/.kube/config", "~/.config/gcloud", "~/.npmrc", "~/.pypirc")
 _ENV_NAME = re.compile(r"_(?:KEY|TOKEN|SECRET|PASSWORD)$")
 _CRED_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|AUTH|CREDENTIAL", re.I)
+_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,80}")  # a name; never "NAME=value" or a header line
 _NOT_SECRET = (".example", ".sample", ".template")
 # Guessed from the server's name, program and arguments. Every server also gets "read".
 _CLASSES = (
@@ -96,8 +97,15 @@ def _mentions(path, needle):
         return False
 
 
-def _keys(v):
-    return [str(k) for k in v] if isinstance(v, (dict, list)) else [str(v)] if v else []
+def _dict(v):
+    return v if isinstance(v, dict) else {}
+
+
+def _host(url):
+    try:
+        return urlsplit(str(url)).hostname
+    except ValueError:
+        return None
 
 
 def _servers(table, source, scope):
@@ -106,16 +114,23 @@ def _servers(table, source, scope):
         if not isinstance(cfg, dict):
             continue
         cmd, url = cfg.get("command"), cfg.get("url")
-        names = [n for k in ("env", "headers", "http_headers", "env_http_headers", "env_vars",
-                             "bearer_token_env_var") for n in _keys(cfg.get(k))]
-        text = " ".join([str(name), str(cmd or ""), " ".join(_keys(cfg.get("args"))),
+        # Names only: the keys of the tables, and the two Codex fields that hold names of
+        # environment variables. A table given as a list or a line of text is not read.
+        env_vars = cfg.get("env_vars") if isinstance(cfg.get("env_vars"), list) else []
+        names = [str(n) for k in ("env", "headers", "http_headers", "env_http_headers")
+                 for n in _dict(cfg.get(k))]
+        names += [n for n in env_vars + [cfg.get("bearer_token_env_var")] if isinstance(n, str)]
+        args = cfg.get("args") if isinstance(cfg.get("args"), list) else []
+        text = " ".join([str(name), str(cmd or ""), " ".join(str(a) for a in args),
                          str(url or "")])
+        # the program's file name only: a command given as one line can carry a token after it
+        program = os.path.basename(cmd.split()[0]) if isinstance(cmd, str) and cmd.split() else None
         out.append({
             "name": str(name), "source": source, "scope": scope,
-            "transport": "http" if url else "stdio",
-            "command": os.path.basename(str(cmd)) if cmd else None,
-            "host": urlsplit(str(url)).hostname if url else None,
-            "credential_names": sorted({n for n in names if _CRED_NAME.search(n)}),
+            "transport": "http" if url else "stdio", "command": program,
+            "host": _host(url) if url else None,
+            "credential_names": sorted({n for n in names
+                                        if _NAME.fullmatch(n) and _CRED_NAME.search(n)}),
             "classes": classify(text, remote=bool(url))})
     return out
 
@@ -125,7 +140,7 @@ def _agent_servers(agent_id, home, project):
     j = os.path.join
     if agent_id == "claude-code":
         user = _read_json(j(home, ".claude.json"))
-        local = (user.get("projects") or {}).get(project) or {}
+        local = _dict(_dict(user.get("projects")).get(project))
         parts = [(j(home, ".claude.json"), "user", user.get("mcpServers")),
                  (j(home, ".claude.json"), "local", local.get("mcpServers")),
                  (j(project, ".mcp.json"), "project",
@@ -197,7 +212,10 @@ def scan(home=None, project=None, env=None):
     nhis = _nhis(home, project, os.environ if env is None else env)
     agents, project_servers = [], []
     for agent_id, name, folder, web, shell in AGENTS:
-        configs, servers = _agent_servers(agent_id, home, project)
+        try:
+            configs, servers = _agent_servers(agent_id, home, project)
+        except Exception:  # a config in a shape nobody expected must not stop the whole scan
+            configs, servers = [], []
         project_servers += [dict(s, agent=agent_id) for s in servers if s["scope"] != "user"]
         found = os.path.isdir(os.path.join(home, folder))
         agents.append({

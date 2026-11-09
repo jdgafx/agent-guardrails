@@ -174,6 +174,26 @@ def test_generic_json_names_its_own_agent_and_uses_the_exit_code(box):
     assert lines(box.data)[0]["agent"] == "aider" and lines(box.data)[0]["session_id"] == "a1"
 
 
+@pytest.mark.parametrize("payload", [
+    {"tool": "Bash", "input": {"command": "cat ~/.ssh/id_rsa"}, "result": None},
+    {"tool": "Bash", "input": {"command": "cat ~/.ssh/id_rsa"}, "error": None},
+    {"command": "cat ~/.ssh/id_rsa", "input": {}},
+    {"command": "cat ~/.ssh/id_rsa", "tool": "Bash", "tool_input": {"description": "list"}},
+])
+def test_generic_input_cannot_skip_the_check_with_a_null_result_or_a_second_input(box, payload):
+    r, out = hook(box, "generic", payload)
+    assert r.returncode == 2 and out["decision"] == "ask" and "deny-key-files" in out["reason"]
+
+
+def test_codex_patch_in_any_field_is_read_and_one_with_no_file_is_refused(box):
+    patch = "*** Begin Patch\n*** Update File: %s\n@@\n-a\n+b\n*** End Patch" % (
+        box.plugin / "policy.json")
+    decision, reason = codex_decision(box, "apply_patch", {"input": patch})
+    assert decision == "deny" and reason.startswith("[deny-guard-files]")
+    decision, reason = codex_decision(box, "apply_patch", {"command": "--- a/x\n+++ b/x\n"})
+    assert decision == "deny" and "names no file" in reason
+
+
 def test_claude_code_through_the_adapter_answers_like_its_own_hook(box):
     payload = json.dumps({"hook_event_name": "PreToolUse", "session_id": "cc", "tool_use_id": "t",
                           "tool_name": "Read", "tool_input": {"file_path": ".env"}})
@@ -220,6 +240,9 @@ def test_shell_runs_an_allowed_command_in_the_real_shell_and_logs_it_redacted(bo
     ["-c", "git push --force origin main && touch ran"],
     ["-lc", "rm -rf build; touch ran"],
     ["-o", "pipefail", "-c", "cat .env; touch ran"],
+    ["--rcfile", "-c", "-c", "rm -rf build; touch ran"],  # "-c" as the value of an option
+    ["-c", "-x", "rm -rf build; touch ran"],  # an option between -c and the command
+    ["-c", "--", "rm -rf build; touch ran"],
 ])
 def test_shell_refuses_what_would_ask_and_runs_nothing(box, argv):
     r = box("shell", *argv)

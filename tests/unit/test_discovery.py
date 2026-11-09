@@ -69,6 +69,31 @@ def test_no_secret_value_reaches_the_inventory_or_the_report(world):
     assert "debug" not in text and "--quiet" not in text  # no value and no argument at all
 
 
+def test_odd_config_shapes_leak_nothing_and_do_not_stop_the_scan(world):
+    """A command given as one line, env as a list, headers as text, a broken URL, lists where
+    tables belong: a project's .mcp.json comes from whoever wrote the repo."""
+    home, project, _ = world
+    (project / ".mcp.json").write_text(json.dumps({"mcpServers": {
+        "line": {"command": "npx -y srv --token=tok-in-an-argument"},
+        "list": {"command": ["npx", "--key=tok-in-an-argument"], "env": ["API_TOKEN=dotenv-body"]},
+        "text": {"command": "x", "headers": "Authorization: Bearer bearer-in-a-header",
+                 "args": "tok-in-an-argument"},
+        "url": {"url": "https://[::1", "env_vars": ["GOOD_TOKEN", "BAD_TOKEN=fal-key-value", 7]},
+        "user": {"url": "https://bob:npm-token-body@mcp.example.com/p?k=tok-in-a-url"},
+        "junk": 5}}))
+    (home / ".claude.json").write_text(json.dumps({"mcpServers": [1], "projects": [1]}))
+    inv = scan(world)
+    text = json.dumps(inv) + discovery.report(inv)
+    assert [s for s in SECRETS if s in text] == []
+    servers = {s["name"]: s for s in agent(inv, "claude-code")["mcp_servers"]}
+    assert set(servers) == {"line", "list", "text", "url", "user"}
+    assert servers["line"]["command"] == "npx" and servers["list"]["command"] is None
+    assert servers["url"]["host"] is None and servers["url"]["credential_names"] == ["GOOD_TOKEN"]
+    assert servers["user"]["host"] == "mcp.example.com"
+    (home / ".claude.json").write_text(json.dumps({"projects": {str(project): [1]}}))
+    assert agent(scan(world), "claude-code")["found"] is True
+
+
 def test_the_scan_changes_nothing_and_opens_no_credential_file(world):
     home, project, _ = world
 
@@ -205,6 +230,31 @@ def test_install_leaves_a_broken_file_and_a_missing_agent_alone(world, tmp_path)
     code, lines = install.install("codex", PLUGIN, tmp_path / "data", home=str(home))
     assert code == 2 and "left as it is" in lines[0]
     assert (home / ".codex" / "hooks.json").read_text() == "{broken"
+
+
+@pytest.mark.parametrize("hooks", [{"PreToolUse": None}, {"PreToolUse": {"a": 1}},
+                                   {"PreToolUse": [{"hooks": 5}]}, [1]])
+def test_install_leaves_a_hooks_file_in_an_unknown_shape_alone(world, tmp_path, hooks):
+    home = world[0]
+    before = json.dumps({"hooks": hooks})
+    (home / ".codex" / "hooks.json").write_text(before)
+    code, lines = install.install("codex", PLUGIN, tmp_path / "data", home=str(home))
+    assert code == 2 and "left as it is" in lines[0]
+    assert (home / ".codex" / "hooks.json").read_text() == before
+    assert not (home / ".codex" / "hooks.json.guardrails-tmp").exists()
+
+
+def test_install_keeps_a_linked_hooks_file_a_link_and_its_mode(world, tmp_path):
+    home = world[0]
+    real = tmp_path / "dotfiles" / "hooks.json"
+    real.parent.mkdir()
+    real.write_text('{"hooks": {}}')
+    real.chmod(0o600)
+    (home / ".codex" / "hooks.json").symlink_to(real)
+    assert install.install("codex", PLUGIN, tmp_path / "data", home=str(home))[0] == 0
+    assert (home / ".codex" / "hooks.json").is_symlink()
+    assert "PreToolUse" in json.loads(real.read_text())["hooks"]
+    assert stat.S_IMODE(real.stat().st_mode) == 0o600
 
 
 def test_install_claude_runs_claude_codes_own_commands(tmp_path, monkeypatch):
