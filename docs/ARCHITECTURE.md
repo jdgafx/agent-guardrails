@@ -17,10 +17,11 @@ repo (uv workspace, one monorepo)
 ├── packages/guardrails-core     the engine. Python standard library only.
 ├── packages/guardrails-plugin   the installable plugin folder: hooks/ (the two scripts and hooks.json), policy.json,
 │                                policy.schema.json, isolation/settings.local.json (the generated sandbox block, opt-in),
-│                                .claude-plugin/plugin.json, dashboard.py (starts the dashboard from an install), and
+│                                .claude-plugin/plugin.json, dashboard.py (starts the dashboard from an install),
+│                                guard.py (the entry for agents other than Claude Code), and
 │                                vendor/ with copies of core, of the dashboard server (guardrails_dashboard/) and of the page (index.html).
 ├── packages/guardrails-demo     make demo: runs fixtures through the real hook scripts.
-└── packages/guardrails-dashboard  make dashboard: the local read-only server for index.html.
+└── packages/guardrails-dashboard  make dashboard: the local server for index.html (also --scan and --install).
 tests/                           unit, end-to-end and acceptance tests (pytest).
 pyproject.toml, uv.lock          the uv workspace, the ruff settings, Python 3.9 or newer for the tools.
 .github/workflows/ci.yml         CI: vendored copy, lint, tests, demo, manifest parse.
@@ -129,6 +130,34 @@ make build    # re-copy core, the dashboard server and index.html into vendor/
 
 Needs [uv](https://docs.astral.sh/uv/) for `make lint` and `make test`. "Core" is `packages/guardrails-core`, the engine. "Vendor" is `packages/guardrails-plugin/vendor/`, which holds copies of core, the dashboard server (`guardrails_dashboard`) and the page (`index.html`). `make test` includes the doc tests, so an edit to README, GLOSSARY or docs/ can fail it. Run `make build` after you edit core, commit the result, and run `git status` to add any new file under `vendor/`. A direct `uv run pytest` fails if the copy drifts; `make test` rebuilds the copy first, so it cannot catch this. CI runs `make build` and fails if the status of `packages/guardrails-plugin/vendor` shows any change, a new file git does not track yet included.
 
+## Other agents
+
+Claude Code calls the two hook scripts. Every other agent comes in through `guard.py` in the plugin folder (stock `python3`, nothing installed), and all of them end in the same `hooks.run_pre` and `hooks.run_post`: the same rules, redaction, injection scan, session mark and log. `adapters.py` turns each agent's input into Claude Code's shape first, so a tool is always named `Bash`, `Read`, `Edit` or `mcp__<server>__<tool>` when the rules read it.
+
+| Entry | Command | What it sees | A call that would ask |
+|---|---|---|---|
+| Cursor hooks | `guard.py hook cursor` | `beforeShellExecution`, `beforeMCPExecution`, `beforeReadFile`; the two after-hooks for the log, the scan and the mark | asks (Cursor's own prompt); a file read is refused, that hook has no ask |
+| Codex hooks | `guard.py hook codex` | `PreToolUse` and `PostToolUse` of every tool Codex sends; a patch is checked file by file as an `Edit` | refused |
+| Generic JSON | `guard.py hook generic` | `{"tool": ..., "input": {...}}` or `{"command": "..."}` on stdin; the answer is `{"decision", "reason"}` and exit code 0 (allow) or 2 | the caller decides; exit code 2 |
+| MCP proxy | `guard.py mcp --name NAME -- <cmd> <args>` | every `tools/call` of one stdio MCP server, and its result (secrets replaced, scanned, a note put in front of a flagged result) | an MCP elicitation to the person when the client offers it, else refused |
+| Shell wrapper | `guard.py shell -c "<cmd>"` as `$SHELL` | each `-c` command, then the real shell takes over (`os.execv`) | refused, exit code 126 |
+
+Why an ask is refused in three rows: Codex's hook doc says an `ask` answer fails the hook and the call runs, a `$SHELL` has nobody to ask, and an MCP client without elicitation has no question channel. A refusal is the only answer that is not an allow. The log line keeps the real decision (`ask`) and the rule.
+
+`python3 -m guardrails_dashboard --install <claude|cursor|codex>` does the wiring. For Claude Code it runs `claude plugin marketplace add` and `claude plugin install`. For Cursor and Codex it adds entries to `~/.cursor/hooks.json` or `~/.codex/hooks.json`: other entries stay, a second run changes nothing, the file as it was is kept as `hooks.json.guardrails-bak`, and a file that is not valid JSON is left alone. The hook command names the data folder the dashboard reads, so one page shows every agent; with no Claude Code plugin folder that is `~/.agent-guardrails`. Every log line carries `agent` (`claude-code` when the line does not say). A write tool on one of those two hooks files asks, like a write to Claude Code's settings.
+
+Limits. The Cursor and Codex shapes come from those agents' hook docs; the tests send payloads in those shapes and do not run the live agents. Cursor's own file edits are not checked (no hook is wired for them). Codex must be told to trust a new hook (`/hooks`). The shell wrapper checks only `-c` commands: a script file, commands on stdin and a program the agent starts without `$SHELL` are not seen. The proxy covers stdio servers only, takes no `tools/call` inside a JSON-RPC batch, and an MCP client that accepts elicitations by itself turns an ask into an allow. An agent that can edit its own config can take the proxy or the wrapper out again.
+
+## NHI and agent discovery
+
+`discovery.py` (`--scan`, `GET /api/inventory`, `guard.py scan`) lists what is on this computer: the agents found (`~/.claude`, `~/.cursor`, `~/.codex`), the MCP servers in their user and project config (`~/.claude.json`, `.mcp.json`, `mcp.json`, `config.toml`), and the NHIs within reach (`.env*` files at the top of the project, `~/.ssh`, `~/.aws`, `~/.kube/config`, `~/.config/gcloud`, `~/.npmrc`, `~/.pypirc`, and the names of environment variables that end in `_KEY`, `_TOKEN`, `_SECRET` or `_PASSWORD`).
+
+It only reads. It never opens a credential file (it reports presence and permission bits) and never reads the value of a variable. Of an MCP server it keeps the name, the program's file name, the host of a URL and the credential-like names of its env vars and headers; arguments, URL paths and values are dropped because they can hold tokens.
+
+The level is the lethal trifecta: (1) outside content comes in through a web tool or an MCP server, (2) a secret is within reach, (3) a shell or an MCP server can send data out. All three is CRITICAL, two is HIGH, fewer is OK; each leg lists what was found for it. Expect CRITICAL for an agent with a web tool and a shell on a developer's computer: that is the finding, not a fault of the scan. The project's own level counts only the project's MCP servers and `.env` files.
+
+Limits. It starts no server, so the classes of a server (`read`, `write`, `exec`, `network`, `financial`) are a guess from its name and command. Connectors that live in an account (claude.ai, ChatGPT) and servers shipped inside plugins are not in those files. Codex's `config.toml` needs Python 3.11 or newer. Only `.env` files at the top of the project are listed.
+
 ## Modules (in guardrails-core)
 
 | File | Job |
@@ -139,6 +168,11 @@ Needs [uv](https://docs.astral.sh/uv/) for `make lint` and `make test`. "Core" i
 | `audit.py` | Writes log lines, counts calls, remembers Pre's decision for Post, and keeps the session mark (`mark_session`, `is_marked`, `first_mark`). |
 | `injection.py` | Scans the output of every tool that is not trusted (`trusted_tools`) for injection phrases and reports the hits (`hooks.py` logs them, tells Claude and marks the session); a signal, not a shield. `named_untrusted` says whether an `untrusted_tools` pattern names a tool. It reads the text values of the result (not keys, numbers or base64 data), applies NFKC, removes invisible format characters, collapses white space and keeps the first 200000 characters. Markers match without regard to case. One 3-second timer covers the whole scan (not on Windows or off the main thread). |
 | `redact.py` | Replaces known secret formats (seven patterns; the names are under "Audit log format" below) with `[REDACTED:kind]`. `redact_fields` does it for chosen keys of a dict (used for shell output with isolation on). |
+| `adapters.py` | Turns the hook input of Cursor, Codex or a generic caller into Claude Code's shape, runs it through `hooks.py`, and shapes the answer for that agent (`normalize`, `check`, `answer`). |
+| `mcp_proxy.py` | The stdio proxy in front of one MCP server: checks `tools/call`, asks through elicitation, redacts and scans results. |
+| `shell_guard.py` | The `$SHELL` wrapper: checks and logs a `-c` command, then `os.execv` of the real shell. |
+| `discovery.py` | The read-only NHI and agent inventory and its lethal-trifecta level. |
+| `install.py` | Wires the guard into Claude Code (its plugin commands), Cursor and Codex (their `hooks.json`). |
 | `isolation.py` | The opt-in isolation layer: `sandbox_block` generates the Claude Code sandbox settings block from the secret rules, `block_in_force` checks that a project's settings files hold it and open no sandbox write path or host, and `python3 -m guardrails_core.isolation <policy.json>` prints the block (`make isolation`). |
 
 ## What happens on one tool call
@@ -404,11 +438,14 @@ The probe sessions behind this layer ran on Claude Code 2.1.318 (2026-11-05) and
 - Secrets in the input are replaced with `[REDACTED:<kind>]` before writing and before the 2000-character cut below. Kinds: private-key, anthropic-key, openai-key, aws-access-key, aws-secret-key, github-token, bearer-token.
 - If the JSON text of the input is longer than 2000 characters (the default of `audit.max_input_chars` in `policy.json`), the whole `input` field is replaced by `{"truncated": "<the first 2000 characters>"}`.
 - Every line is plain ASCII: a non-ASCII character is written as `\uXXXX`. `jq` and `json.loads` show the original text; `grep` for a non-ASCII word in the raw file does not find it.
+- `agent` names the agent that made the call: `claude-code` (also when the hook input does not say), `cursor`, `codex`, the name a generic caller gave, `mcp-proxy`, `shell`, or `dashboard`.
+- The shell wrapper writes the `result` line of an allowed command before the command runs, with `status: "started"`: nothing of the wrapper is left once the real shell has taken over.
+- `event: "mark-cleared"` is written when a person clears a session mark from the dashboard.
 - Field names `gen_ai.tool.name`, `gen_ai.tool.call.id` and `gen_ai.conversation.id` follow the OpenTelemetry GenAI naming style. There is no exporter. Setting `audit.otel_field_names` to false in `policy.json` leaves the three fields out.
 
 ## What the tests cover
 
-`tests/unit/test_t012_docs.py` pins sentences of this document and of THREAT_MODEL.md and a list of removed wording. `tests/unit/test_t013_doc_gaps.py` runs the rule gaps named in THREAT_MODEL.md through the shipped policy and pins a few sentences in README.md, GLOSSARY.md and both docs. An edit to any of the four docs can fail `make test` until the matching test is changed with it. The e2e tests and the hook tests in the acceptance file run the hooks with `PATH=/usr/bin:/bin` (the stock `python3`), except the no-`python3` test; the acceptance demo test runs `make demo` with the caller's environment minus variables whose names contain `API_KEY` or `TOKEN`. The demo runner (`guardrails_demo/runner.py`) copies the shipped policy into a temporary data folder with `step_cap.max_calls` set to 3, builds its one fake key at run time, uses `sys.executable` to run the real hook scripts, and exits 1 if any fixture decision differs (`GUARDRAILS_PLUGIN_DIR` overrides the plugin folder).
+`tests/unit/test_t013_doc_gaps.py` and `tests/unit/test_doc_examples.py` run the rule gaps and the example commands of the docs through the shipped policy; they no longer read the wording of the docs. `tests/unit/test_t022_doc_agreement.py` and `tests/unit/test_t028_docs_dashboard.py` still pin a few sentences, so an edit to README.md or `docs/` can fail `make test` until the matching test is changed with it. The other agents are covered by `tests/e2e/test_any_agent.py` (the adapters and the shell wrapper, from a copy of the plugin on the stock `python3`), `tests/e2e/test_mcp_proxy.py` (the proxy between a test client and a real server process), `tests/unit/test_discovery.py` (the inventory and the install on a made-up home) and `tests/e2e/test_inventory_api.py` (`/api/inventory`, the mark clear, `--scan`, `--install`). The e2e tests and the hook tests in the acceptance file run the hooks with `PATH=/usr/bin:/bin` (the stock `python3`), except the no-`python3` test; the acceptance demo test runs `make demo` with the caller's environment minus variables whose names contain `API_KEY` or `TOKEN`. The demo runner (`guardrails_demo/runner.py`) copies the shipped policy into a temporary data folder with `step_cap.max_calls` set to 3, builds its one fake key at run time, uses `sys.executable` to run the real hook scripts, and exits 1 if any fixture decision differs (`GUARDRAILS_PLUGIN_DIR` overrides the plugin folder).
 
 | Claim | Test |
 |-------|------|
@@ -483,7 +520,7 @@ The table above has the reasons. An allowlist would block every command not list
 - **No spend cap.** A hook input has no cost field. A cap estimated from the session transcript (its path is in the hook input) was not attempted.
 - **No injection blocking or rewriting.** A phrase match has false positives, and rewriting tool output means the model sees text that differs from the tool's real output, which the log would not show. The scan tells Claude and the person, and marks the session when the tool reads outside content; it never edits or hides the result. It is a signal, not a shield.
 - **No OpenTelemetry exporter.** The log uses OpenTelemetry's field names (`gen_ai.tool.name` and two more) so an exporter could read it later. Nothing is sent anywhere.
-- **One static dashboard page; a server only when you start it.** The repo ships `index.html`, a single self-contained static dashboard page with no runtime dependencies. It asks for `/api/status`, `/api/policy` and `/api/events` and shows the policy and the audit log from them; if those do not answer (for example when you open the file by double-click), it shows sample data. `packages/guardrails-dashboard` serves the page and `/api` on demand: read-only, on 127.0.0.1 only, and only to a request that carries the one-time key it prints at start. From a clone, `make dashboard` starts it. A plugin install carries a copy of the server and the page (see "Decision: dashboard in the plugin") and `dashboard.py` starts it, but it runs only when you start it, and the hooks open no port. The log itself stays a JSONL file you can `grep` and `jq`.
+- **One static dashboard page; a server only when you start it.** The repo ships `index.html`, a single self-contained static dashboard page with no runtime dependencies. It asks for `/api/status`, `/api/policy` and `/api/events` and shows the policy and the audit log from them; if those do not answer (for example when you open the file by double-click), it shows sample data. `packages/guardrails-dashboard` serves the page and `/api` on demand, on 127.0.0.1 only, and only to a request that carries the one-time key it prints at start. Every GET only reads (`/api/inventory` is the discovery scan). The one POST, `/api/taint/clear`, deletes the mark file of one session and writes a `mark-cleared` log line; a request from another site's page is refused. From a clone, `make dashboard` starts it. A plugin install carries a copy of the server and the page (see "Decision: dashboard in the plugin") and `dashboard.py` starts it, but it runs only when you start it, and the hooks open no port. The log itself stays a JSONL file you can `grep` and `jq`.
 
 ### Known gaps
 

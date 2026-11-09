@@ -397,7 +397,7 @@ def test_case_23_paths_outside_the_route_map_are_404(dash, path):
     assert dash.request(path)[0] == 404
 
 
-@pytest.mark.parametrize("method,path", [("POST", "/api/status"), ("HEAD", "/")])
+@pytest.mark.parametrize("method,path", [("PUT", "/api/status"), ("HEAD", "/")])
 def test_case_24_other_methods_are_501_with_the_headers(dash, method, path):
     code, headers, _ = dash.request(path, method=method)
     assert code == 501

@@ -1,6 +1,6 @@
 # agent-guardrails [![CI](https://github.com/jdgafx/agent-guardrails/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jdgafx/agent-guardrails/actions/workflows/ci.yml)
 
-A Claude Code plugin that checks each tool call the agent makes before it runs, answers deny, ask or allow from the rules in `policy.json`, and logs what it did. It is for developers and security people who let Claude Code touch files, a shell and MCP tools. It is a rule check on tool calls, not a sandbox.
+A Claude Code plugin that checks each tool call the agent makes before it runs, answers deny, ask or allow from the rules in `policy.json`, and logs what it did. It is for developers and security people who let Claude Code touch files, a shell and MCP tools. It is a rule check on tool calls, not a sandbox. The same rules, log and injection scan also guard Cursor and Codex through their hooks, any stdio MCP server through a proxy, and any CLI agent through a shell wrapper ([other agents](#other-agents)).
 
 It uses only the Python standard library. No API key, no account, no pip install. The hooks open no network connection and no port; the dashboard, when you start it, listens on 127.0.0.1 only and answers only with its key.
 
@@ -57,11 +57,32 @@ A rule that would deny a shell command asks instead, so you can still say yes. A
 - No spend cap, and the step cap is soft ([limit 1](docs/THREAT_MODEL.md#1-no-spend-cap)).
 - A hook that cannot start or times out should block the call on Claude Code 2.1.295 or later (per its release notes; not tested here); older versions probably let it through, and the plugin does not check the version ([limit 9](docs/THREAT_MODEL.md#9-old-claude-code-versions-fail-open)).
 - The log is partial, and the agent can edit it from the shell: a declined ask leaves only the decision line, and a secret in an unknown key format is written as is ([log limits](docs/THREAT_MODEL.md#limits-of-the-log)).
+- Agents other than Claude Code get less. Codex, the shell wrapper and an MCP client without elicitation cannot ask, so an ask is a refusal. Cursor's own file edits are not checked. The Cursor and Codex adapters follow those agents' hook docs and are tested with payloads in those shapes, not against the live agents ([other agents](docs/ARCHITECTURE.md#other-agents)).
+- The inventory guesses what an MCP server can do from its name and command, and does not see connectors that live in an account ([discovery](docs/ARCHITECTURE.md#nhi-and-agent-discovery)).
 - CI runs on Linux. macOS and Windows are not tested, and the plugin needs `python3` on PATH ([known gaps](docs/ARCHITECTURE.md#known-gaps)).
 
 Which layer holds which threat, one table: "What holds each threat" in [THREAT_MODEL](docs/THREAT_MODEL.md#what-holds-each-threat).
 
 ![The dashboard on made-up sample events: the policy rules on the left, the security events on the right. A made-up key, no real data.](docs/screenshots/dashboard.png)
+
+## Other agents
+
+From a clone (or with `dashboard.py` of an installed plugin in place of `python3 -m guardrails_dashboard`):
+
+```bash
+make dashboard ARGS="--scan"             # what is on this computer: agents, MCP servers, reachable secrets
+make dashboard ARGS="--install codex"    # or cursor, or claude: wires the hooks, no JSON to copy
+```
+
+| Agent | How it is guarded | A call that would ask |
+|---|---|---|
+| Claude Code | the plugin's hooks | asks you |
+| Cursor | `~/.cursor/hooks.json`: shell commands, MCP calls, file reads | asks you (a file read is refused) |
+| Codex | `~/.codex/hooks.json`: every tool its hooks see | is refused: a Codex hook cannot ask |
+| Any MCP client | `python3 guard.py mcp --name NAME -- <server command>` in place of the server command | asks through MCP elicitation, else is refused |
+| Any CLI agent | `python3 guard.py shell` as its `$SHELL` | is refused: nobody can be asked |
+
+`--scan` and the dashboard's **NHI & Agent Inventory** panel list each agent, its MCP servers, the credential files and key names within its reach, and a lethal-trifecta level (CRITICAL when one agent has outside content, secrets and a way to send data out). The scan reads names, paths and permission bits, never a secret value. Details and limits: [ARCHITECTURE](docs/ARCHITECTURE.md#other-agents).
 
 ## Try it without Claude Code
 
@@ -81,7 +102,7 @@ make test     # unit, end-to-end and acceptance tests; runs make build first
 make build    # re-copy core, the dashboard server and index.html into vendor/
 ```
 
-`make lint` and `make test` need [uv](https://docs.astral.sh/uv/). `make test` includes the doc tests, so an edit to the README, the glossary or `docs/` can fail it. Run `make build` after you edit core and commit the result.
+`make lint` and `make test` need [uv](https://docs.astral.sh/uv/). `make test` still checks a few doc sentences (`tests/unit/test_t022_doc_agreement.py`, `tests/unit/test_t028_docs_dashboard.py`), so an edit to the README or `docs/` can fail it. Run `make build` after you edit core and commit the result.
 
 ## More
 

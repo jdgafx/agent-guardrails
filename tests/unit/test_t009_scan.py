@@ -577,8 +577,8 @@ def test_case_56_result_line_keys(plugin, data):
     rec = one_result(data)
     need = {"ts", "session_id", "tool_name", "tool_use_id", "event", "decision", "rule", "step",
             "input", "result_bytes", "status", "warnings", "warned", "tainted", "gen_ai.tool.name",
-            "gen_ai.tool.call.id", "gen_ai.conversation.id"}
-    assert set(rec) == need
+            "gen_ai.tool.call.id", "gen_ai.conversation.id", "agent"}
+    assert set(rec) == need and rec["agent"] == "claude-code"
 
 
 def test_case_57_non_ascii_command_in_a_decision_line(plugin, data):

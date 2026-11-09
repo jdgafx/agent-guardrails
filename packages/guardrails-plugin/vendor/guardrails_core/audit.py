@@ -33,6 +33,7 @@ def write_audit(data, record, policy):
     if len(text) > limit:
         rec["input"] = {"truncated": text[:limit]}
     rec = dict(ts=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), **rec)
+    rec["agent"] = str(rec.get("agent") or "claude-code")[:40]  # which agent made the call
     if cfg.get("otel_field_names", True):  # field names in the style of OpenTelemetry GenAI
         rec["gen_ai.tool.name"] = rec.get("tool_name")
         rec["gen_ai.tool.call.id"] = rec.get("tool_use_id")

@@ -39,7 +39,9 @@ def _named_paths(tool_name, tool_input):
     if tool_name == "Bash":
         return [t for t in _SPLIT.split(str(tool_input.get("command", ""))) if t]
     keys = PATH_KEYS + (("pattern",) if tool_name == "Glob" else ())
-    return [str(tool_input[k]) for k in keys if isinstance(tool_input.get(k), str)]
+    more = tool_input.get("file_paths")  # an edit of several files (Codex apply_patch, adapters.py)
+    return ([str(tool_input[k]) for k in keys if isinstance(tool_input.get(k), str)]
+            + [p for p in (more if isinstance(more, list) else ()) if isinstance(p, str)])
 
 
 def candidate_paths(tool_name, tool_input):
@@ -308,8 +310,13 @@ def guard_check(tool_name, tool_input, guard, cwd):
     if cfg and "\0" not in cfg:
         homes.append(os.path.join(cwd, cfg))
     mine = {os.path.realpath(os.path.join(h, n)) for h in homes for n in SETTINGS}
-    if any(p in mine for p in paths):
+    # The hooks files that install.py wires for Cursor and Codex switch the guard off the same way.
+    mine |= {os.path.realpath(os.path.join(os.path.dirname(h), d, "hooks.json"))
+             for h in homes[:3] for d in (".cursor", ".codex")}
+    hit = [p for p in paths if p in mine]
+    if hit:
+        what = "a Claude Code settings" if hit[0].endswith(SETTINGS) else "an agent's hooks"
         return Decision("ask", "ask-claude-settings",
-                        "This changes a Claude Code settings file, which can switch the guard "
-                        "off. Confirm it.", None)
+                        "This changes %s file, which can switch the guard off. Confirm it." % what,
+                        None)
     return None

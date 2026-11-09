@@ -1443,6 +1443,145 @@
       font-size: var(--fs-row);
       margin-bottom: 2px;
     }
+
+    /* Marked sessions bar and the NHI & Agent Inventory panel */
+    .marks-bar {
+      display: none;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--inj-border);
+      border-left: 4px solid var(--inj-solid);
+      background: var(--inj-bg);
+      font-size: var(--fs-row);
+    }
+    .marks-bar.visible {
+      display: block;
+    }
+    .marks-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .marks-list li {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      overflow-wrap: anywhere;
+    }
+    .inv-btn {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-control);
+      border-radius: 4px;
+      padding: 4px 10px;
+      min-height: 26px;
+      font-size: var(--fs-meta);
+      font-family: var(--font-mono);
+      font-weight: 600;
+      cursor: pointer;
+      color: var(--text-primary);
+    }
+    .inv-btn:hover {
+      background: var(--bg-hover);
+    }
+    .inventory-panel {
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      padding: 12px 16px;
+    }
+    .inventory-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .inventory-title {
+      margin: 0;
+      font-family: var(--font-mono);
+      font-size: var(--fs-row);
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .inventory-meta {
+      color: var(--text-secondary);
+      font-size: var(--fs-meta);
+      margin-right: auto;
+    }
+    .inventory-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+    }
+    .inv-card {
+      border: 1px solid var(--border-subtle);
+      border-radius: 6px;
+      background: var(--bg-canvas);
+      padding: 10px 12px;
+      min-width: 0;
+      font-size: var(--fs-row);
+      color: var(--text-secondary);
+      overflow-wrap: anywhere;
+    }
+    .inv-card h3 {
+      margin: 0 0 6px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      font-size: var(--fs-body);
+      color: var(--text-primary);
+    }
+    .inv-card ul {
+      list-style: none;
+      margin: 4px 0 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .inv-label {
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+    .inv-name {
+      font-family: var(--font-mono);
+      color: var(--text-primary);
+    }
+    .inv-chip {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: var(--fs-meta);
+      padding: 1px 6px;
+      margin-left: 4px;
+      border-radius: 4px;
+      border: 1px solid var(--border-strong);
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+    .inv-chip.warn {
+      color: var(--ask-fg);
+      border-color: var(--ask-border);
+      background: var(--ask-bg);
+    }
+    .inv-chip.good {
+      color: var(--allow-fg);
+      border-color: var(--allow-border);
+      background: var(--allow-bg);
+    }
+    .inv-notes {
+      margin: 10px 0 0;
+      padding-left: 18px;
+      color: var(--text-muted);
+      font-size: var(--fs-meta);
+    }
   </style>
 </head>
 <body>
@@ -1470,7 +1609,7 @@
     </div>
     <div class="header-meta">
       <span id="data-source-badge" class="data-source-pill sample">sample data</span>
-      <span class="readonly-hint">Read-only console · Edit rules in <code>policy.json</code></span>
+      <span class="readonly-hint">Local console · Edit rules in <code>policy.json</code></span>
       <button id="download-html-btn" type="button" class="download-btn" title="Download a clean copy of this page. It holds no log data.">
         <span>⬇ Download index.html</span>
       </button>
@@ -1486,6 +1625,12 @@
       <div id="state-banner-title" class="state-banner-title"></div>
       <div id="state-banner-desc" class="state-banner-desc"></div>
     </div>
+  </section>
+
+  <!-- Marked sessions: one line and one Clear button per session (live data only) -->
+  <section id="marks-bar" class="marks-bar" aria-labelledby="marks-heading">
+    <h2 id="marks-heading" class="sr-only">Marked sessions</h2>
+    <ul id="marks-list" class="marks-list"></ul>
   </section>
 
   <!-- Posture Strip (5 Tiles) -->
@@ -1649,6 +1794,16 @@
       <ul id="events-list" class="events-list"></ul>
     </section>
   </main>
+
+  <!-- NHI & Agent Inventory (filled by script; a downloaded copy holds none of it) -->
+  <section class="inventory-panel" aria-labelledby="inventory-heading">
+    <div class="inventory-head">
+      <h2 id="inventory-heading" class="inventory-title">NHI &amp; Agent Inventory</h2>
+      <span id="inventory-meta" class="inventory-meta"></span>
+      <button id="inventory-refresh" type="button" class="inv-btn" hidden>Scan again</button>
+    </div>
+    <div id="inventory-body"></div>
+  </section>
 
   <!-- Limits Panel -->
   <footer class="limits-footer" aria-labelledby="limits-heading">
@@ -1906,6 +2061,29 @@
         "log_found": true
       };
 
+      /* A made-up inventory for sample mode: no real path, server or key name. */
+      var SAMPLE_INVENTORY = {
+        "scanned_at": "2026-11-07T18:20:00Z",
+        "agents": [
+          {"id": "claude-code", "name": "Claude Code", "found": true, "guarded": true, "mcp_servers": [
+            {"name": "github", "scope": "user", "transport": "http", "command": null, "host": "mcp.example.com", "credential_names": ["Authorization"], "classes": ["read", "network", "write"]},
+            {"name": "filesystem", "scope": "project", "transport": "stdio", "command": "npx", "host": null, "credential_names": [], "classes": ["read", "write"]}],
+           "risk": {"level": "CRITICAL", "untrusted_read": ["WebFetch", "WebSearch", "github"], "secrets": ["~/.ssh", "~/.aws", "EXAMPLE_API_KEY", "github: Authorization"], "external_write": ["Bash", "github", "filesystem"]}},
+          {"id": "cursor", "name": "Cursor", "found": false, "guarded": false, "mcp_servers": [], "risk": null},
+          {"id": "codex", "name": "Codex", "found": true, "guarded": false, "mcp_servers": [],
+           "risk": {"level": "HIGH", "untrusted_read": [], "secrets": ["~/.ssh", "~/.aws", "EXAMPLE_API_KEY"], "external_write": ["shell"]}}
+        ],
+        "project": {"path": "/home/you/project", "mcp_servers": [],
+                    "risk": {"level": "HIGH", "untrusted_read": [], "secrets": ["/home/you/project/.env"], "external_write": ["filesystem"]}},
+        "nhis": [
+          {"kind": "dir", "name": "~/.ssh", "mode": "0700", "loose": false, "entries": 4},
+          {"kind": "dir", "name": "~/.aws", "mode": "0755", "loose": true, "entries": 2},
+          {"kind": "file", "name": "/home/you/project/.env", "mode": "0644", "loose": true},
+          {"kind": "env", "name": "EXAMPLE_API_KEY"}
+        ],
+        "notes": ["The classes of an MCP server are guessed from its name and command; no server is started, so its real tool list is not read."]
+      };
+
       /* =====================================================================
          2. DESIGNED STATES FOR ?states=1
          ===================================================================== */
@@ -2110,7 +2288,11 @@
         pollTimer: null,
         clockTimer: null,
         offline: false,
-        retryTimer: null
+        retryTimer: null,
+        inventory: null,
+        inventoryError: false,
+        inventorySig: null,
+        marksSig: null
       };
 
       function cloneObj(o) {
@@ -3098,6 +3280,166 @@
       }
 
       /* =====================================================================
+         9b. MARKED SESSIONS (POST /api/taint/clear) & INVENTORY (/api/inventory)
+         ===================================================================== */
+      function renderMarks() {
+        var marked = !state.usingSample && Array.isArray(state.status.marked) ? state.status.marked : [];
+        var sig = marked.join("\n");
+        if (sig === state.marksSig) return;
+        state.marksSig = sig;
+        var list = document.getElementById("marks-list");
+        clearNode(list);
+        document.getElementById("marks-bar").className = marked.length ? "marks-bar visible" : "marks-bar";
+        marked.forEach(function (sid) {
+          var li = el("li");
+          li.appendChild(el("span", null, "Session " + sid + " is marked: every step except local file tools asks first."));
+          var btn = el("button", "inv-btn", "Clear mark");
+          btn.type = "button";
+          btn.setAttribute("data-focus-id", "clearmark:" + sid);
+          btn.setAttribute("aria-label", "Clear the mark on session " + sid);
+          btn.addEventListener("click", function () { clearMark(sid, btn); });
+          li.appendChild(btn);
+          list.appendChild(li);
+        });
+      }
+
+      /* One click: the server deletes that session's mark file and logs that a person did it. */
+      function clearMark(sid, btn) {
+        btn.disabled = true;
+        var url = "/api/taint/clear?session=" + encodeURIComponent(sid) + (API_KEY ? "&key=" + encodeURIComponent(API_KEY) : "");
+        fetch(url, { method: "POST" })
+          .then(function (res) {
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            return res.json();
+          })
+          .then(function () {
+            state.status.marked = (state.status.marked || []).filter(function (s) { return s !== sid; });
+            state.statusSig = "";
+            renderAll();
+            document.getElementById("events-heading").focus();
+            announce("Mark cleared for session " + sid);
+          }, function () {
+            btn.disabled = false;
+            announce("Could not clear the mark for session " + sid);
+          });
+      }
+
+      function riskBadge(level) {
+        var kind = level === "CRITICAL" ? "deny" : level === "HIGH" ? "ask" : "allow";
+        return el("span", "decision-badge " + kind, level);
+      }
+
+      function invLegs(card, risk) {
+        var ul = el("ul");
+        [["Untrusted read", risk.untrusted_read], ["Reachable secrets", risk.secrets], ["External write", risk.external_write]].forEach(function (leg) {
+          var items = Array.isArray(leg[1]) ? leg[1] : [];
+          var li = el("li", null, leg[0] + ": ");
+          li.appendChild(el("span", "inv-name", items.length ? items.join(", ") : "none found"));
+          ul.appendChild(li);
+        });
+        card.appendChild(ul);
+      }
+
+      function invServers(card, servers) {
+        card.appendChild(el("div", "inv-label", "MCP servers (" + servers.length + ")"));
+        if (!servers.length) return;
+        var ul = el("ul");
+        servers.forEach(function (s) {
+          var li = el("li");
+          li.appendChild(el("span", "inv-name", s.name));
+          li.appendChild(document.createTextNode(" " + (s.host || s.command || "") + " "));
+          (s.classes || []).forEach(function (c) { li.appendChild(el("span", "inv-chip", c)); });
+          if (s.credential_names && s.credential_names.length) {
+            li.appendChild(el("span", "inv-chip warn", "holds " + s.credential_names.join(", ")));
+          }
+          ul.appendChild(li);
+        });
+        card.appendChild(ul);
+      }
+
+      function renderInventory() {
+        var inv = state.usingSample ? SAMPLE_INVENTORY : state.inventory;
+        var sig = (state.usingSample ? "sample" : "live") + ":" + (inv ? inv.scanned_at : "") + ":" + state.inventoryError;
+        if (sig === state.inventorySig) return;
+        state.inventorySig = sig;
+        var body = document.getElementById("inventory-body");
+        var meta = document.getElementById("inventory-meta");
+        document.getElementById("inventory-refresh").hidden = state.usingSample;
+        clearNode(body);
+        if (!inv) {
+          meta.textContent = state.inventoryError ? "Not available from this server." : "Scanning this computer…";
+          return;
+        }
+        meta.textContent = (state.usingSample ? "made-up sample · " : "this computer · ") + "scanned " + inv.scanned_at +
+          " · names and paths only, never a secret value";
+        var grid = el("div", "inventory-grid");
+        (inv.agents || []).forEach(function (a) {
+          var card = el("div", "inv-card");
+          var h = el("h3", null, a.name);
+          if (!a.found || !a.risk) {
+            h.appendChild(el("span", "inv-chip", "not found"));
+            card.appendChild(h);
+            grid.appendChild(card);
+            return;
+          }
+          h.appendChild(riskBadge(a.risk.level));
+          h.appendChild(el("span", a.guarded ? "inv-chip good" : "inv-chip warn", a.guarded ? "guard wired" : "guard not wired"));
+          card.appendChild(h);
+          invLegs(card, a.risk);
+          invServers(card, a.mcp_servers || []);
+          if (a.note) card.appendChild(el("div", "inv-label", a.note));
+          grid.appendChild(card);
+        });
+        if (inv.project && inv.project.risk) {
+          var pc = el("div", "inv-card");
+          var ph = el("h3", null, "This project");
+          ph.appendChild(riskBadge(inv.project.risk.level));
+          pc.appendChild(ph);
+          pc.appendChild(el("div", "inv-name", inv.project.path));
+          invLegs(pc, inv.project.risk);
+          invServers(pc, inv.project.mcp_servers || []);
+          grid.appendChild(pc);
+        }
+        var nc = el("div", "inv-card");
+        var nhis = inv.nhis || [];
+        nc.appendChild(el("h3", null, "Reachable secrets (NHIs): " + nhis.length));
+        var nul = el("ul");
+        nhis.forEach(function (n) {
+          var li = el("li", null, n.kind + " ");
+          li.appendChild(el("span", "inv-name", n.name));
+          if (n.kind !== "env") {
+            li.appendChild(document.createTextNode(" mode " + n.mode + (n.kind === "dir" && n.entries !== null && n.entries !== undefined ? ", " + n.entries + " entries" : "")));
+            if (n.loose) li.appendChild(el("span", "inv-chip warn", "open to group or others"));
+          }
+          nul.appendChild(li);
+        });
+        nc.appendChild(nul);
+        grid.appendChild(nc);
+        body.appendChild(grid);
+        if (inv.notes && inv.notes.length) {
+          var notes = el("ul", "inv-notes");
+          inv.notes.forEach(function (t) { notes.appendChild(el("li", null, t)); });
+          body.appendChild(notes);
+        }
+      }
+
+      /* The scan reads this computer's config files, so it runs on load and on the button, not on every poll. */
+      function loadInventory(spoken) {
+        if (state.usingSample) return;
+        fetchJsonWithTimeout(apiUrl("/api/inventory"), 10000).then(function (inv) {
+          state.inventory = inv;
+          state.inventoryError = false;
+          renderInventory();
+          if (spoken) announce("Inventory scanned");
+        }, function () {
+          state.inventory = null;
+          state.inventoryError = true;
+          renderInventory();
+          if (spoken) announce("Inventory not available");
+        });
+      }
+
+      /* =====================================================================
          10. FULL RENDER & API POLLING (/api/status, /api/policy, /api/events)
          ===================================================================== */
       function focusIdOf(node) {
@@ -3160,9 +3502,11 @@
         populateDynamicFilters();
         syncFilterControls();
         renderPostureAndBanner();
+        renderMarks();
         renderTelemetryStrip();
         renderRules();
         renderEvents();
+        renderInventory();
         restoreUi(snap);
       }
 
@@ -3224,6 +3568,7 @@
           state.lastTimestamp = last.cursor || last.ts || null;
         }
         renderAll();
+        loadInventory(false);
         startPollingEvents();
       }
 
@@ -3336,6 +3681,7 @@
       }
 
       function setupControls() {
+        document.getElementById("inventory-refresh").addEventListener("click", function () { loadInventory(true); });
         document.getElementById("filter-decision").addEventListener("change", function (e) {
           state.filters.decision = e.target.value;
           renderAll();

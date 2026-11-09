@@ -7,3 +7,4 @@ __pycache__/
 dist/
 tests/live/last_run.txt
 node_modules/
+.claude/worktrees/

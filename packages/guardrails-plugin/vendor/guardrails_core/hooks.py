@@ -64,7 +64,7 @@ def _record(data, p, d, pol, tainted=None):
                 "session_id": sid, "tool_name": tool, "tool_use_id": tid,
                 "event": "decision", "decision": d.decision, "rule": d.rule,
                 "step": d.step, "input": tin, "reason": d.reason,
-                "tainted": tainted}, pol)
+                "tainted": tainted, "agent": p.get("agent")}, pol)
         except Exception as e:
             err = err or e
     return err
@@ -270,7 +270,7 @@ def _log_result(p, pol, data, resp, warnings, cut, tainted):
         "input": p.get("tool_input", {}),
         "result_bytes": injection.result_bytes(resp),
         "status": "error" if bad else "ok", "warnings": warnings,
-        "warned": bool(warnings), "tainted": tainted}
+        "warned": bool(warnings), "tainted": tainted, "agent": p.get("agent")}
     if cut:
         rec["scan_truncated"] = True
     audit.write_audit(data, rec, pol)

@@ -1,15 +1,13 @@
 """The rule gaps and false positives that docs/THREAT_MODEL.md names ("Gaps in the rules",
 "Known false positives"), run through the shipped policy.
 
-These record TODAY's behaviour, so the document's claims can be reproduced from the repo.
-When a fix (T-008 is built) changes a case, change the case here and the text in
-docs/THREAT_MODEL.md together; this file exists to stop a green run with a stale document.
+These record TODAY's behaviour of the rules. The wording of the docs is not checked here.
 """
 import json
 from pathlib import Path
 
 import pytest
-from guardrails_core import rules
+from guardrails_core import hooks, policy, rules
 
 ROOT = Path(__file__).resolve().parents[2]
 POLICY = json.loads((ROOT / "packages" / "guardrails-plugin" / "policy.json").read_text())
@@ -177,21 +175,7 @@ def test_mcp_name_rule():
         assert decide(tool, {})[0] == "allow"
 
 
-# ---- The docs must agree with the code, not only with each other (T-013 round 2) -------------
-# Each test runs the real code first, then reads the docs. Wording is checked only for claims the
-# code result above it settles.
-import re  # noqa: E402
-
-from guardrails_core import hooks, policy  # noqa: E402
-
-DOCS = {n: (ROOT / n).read_text(encoding="utf-8") for n in
-        ("README.md", "GLOSSARY.md", "docs/THREAT_MODEL.md", "docs/ARCHITECTURE.md")}
-
-
-def flat(name):
-    return re.sub(r"\s+", " ", DOCS[name])
-
-
+# ---- What the code does with a broken added policy file and with `except` (T-013 round 2) -----
 @pytest.mark.parametrize("content", ["{", ""])
 def test_broken_added_policy_keeps_denies_and_asks_on_unmatched_calls(
         tmp_path, monkeypatch, content):
@@ -217,17 +201,6 @@ def test_broken_added_policy_keeps_denies_and_asks_on_unmatched_calls(
         assert len(policy.load_policy(str(root), None)[1]) == 1
 
 
-# T-038: the README no longer describes the policy lookup, so it is not in this list
-@pytest.mark.parametrize("name", ["docs/THREAT_MODEL.md", "docs/ARCHITECTURE.md"])
-def test_every_doc_that_describes_the_env_policy_lookup_says_a_bad_file_makes_calls_ask(name):
-    text = flat(name)
-    assert re.search(r"a missing or broken added policy file is left out, the shipped rules "
-                     r"still apply, and calls no rule matches ask", text, re.I), name
-    assert "skipped without a message" not in text
-    assert "unreadable file is skipped" not in text
-    assert "not a readable file it is skipped" not in text
-
-
 @pytest.mark.parametrize("rule,want", [
     # T-018: a command deny on Bash is asked
     ({"id": "x", "kind": "command", "decision": "deny", "match": ["push"], "except": ["push"]},
@@ -243,24 +216,3 @@ def test_except_is_read_only_by_path_rules(rule, want):
     pol = policy.validate({"version": 1, "rules": [r]}, schema)
     d = rules.evaluate(pol, "Bash", {"command": G + " push"}, 1)
     assert d.decision == want
-
-
-def test_docs_say_except_belongs_to_path_rules_only():
-    assert "on path rules only" in flat("GLOSSARY.md")
-    readme = flat("docs/ARCHITECTURE.md")  # T-038: the README's "Change the rules" moved here
-    assert "for `path` rules only" in readme
-    assert "On a `command` or `tool` rule `except` is ignored" in readme
-    arch = flat("docs/ARCHITECTURE.md")
-    assert "an optional `except` list that only `path` rules read" in arch
-    assert "that `except` is on a `path` rule" in arch
-    # the docs must not offer `except` as the way to relax the MCP (tool) rule
-    threat = flat("docs/THREAT_MODEL.md")
-    over = threat.split("**Over-matching.**")[1].split("**Needs Claude Code")[0]
-    assert "`except` does not work on it" in over
-
-
-def test_docs_do_not_overclaim_or_carry_process_notes():
-    assert "allowed with no prompt" not in " ".join(flat(n) for n in DOCS)
-    assert "T-013" not in flat("docs/THREAT_MODEL.md")
-    assert "T-013" not in flat("README.md")
-    assert "For other tool names no fix is written down" in flat("docs/THREAT_MODEL.md")

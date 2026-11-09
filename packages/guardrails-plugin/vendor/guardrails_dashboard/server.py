@@ -1,8 +1,12 @@
-"""A local, read-only server for index.html: the page, /api/status, /api/policy, /api/events.
+"""A local server for index.html: the page, /api/status, /api/policy, /api/events, /api/inventory.
 
-Standard library only. It binds 127.0.0.1, answers GET only, refuses any Host header that is not
-this computer's, and refuses every route without the one-time key it makes at start. No part of a
-URL is ever joined into a file path, and nothing it serves is ever written.
+Standard library only. It binds 127.0.0.1, refuses any Host header that is not this computer's,
+and refuses every route without the one-time key it makes at start. No part of a URL is ever
+joined into a file path. Every GET only reads. The one POST, /api/taint/clear, deletes the mark
+file of one session (the name is cleaned first) and writes one log line that says so.
+
+Two options do their work and exit without serving: --scan prints the NHI and agent inventory,
+--install wires the guard into an agent (see guardrails_core/install.py).
 """
 import argparse
 import glob
@@ -19,6 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs
 
+from guardrails_core import audit, discovery, install
 from guardrails_core.policy import load_policy
 
 PORT = 8765
@@ -29,6 +34,7 @@ CURSOR = re.compile(r"^(\d{4}-\d{2}-\d{2}):(\d{1,15})$")
 FOLDERS = "agent-guardrails-*"
 PLUGIN_KEY = "agent-guardrails@agent-guardrails"  # plugin@marketplace, as in installed_plugins.json
 HANDOVER = "GUARDRAILS_DASHBOARD_HANDOVER"
+OWN_DATA = ".agent-guardrails"
 
 
 def _day_files(data):
@@ -58,6 +64,7 @@ def find_data(arg, env, home):
     if env.get("CLAUDE_CONFIG_DIR"):
         looked.append(os.path.join(env["CLAUDE_CONFIG_DIR"], "plugins", "data", FOLDERS))
     looked.append(os.path.join(home, ".claude*", "plugins", "data", FOLDERS))
+    looked.append(os.path.join(home, OWN_DATA))  # where the other agents log with no plugin folder
     seen, found = set(), []
     for pattern in looked:
         for folder in sorted(glob.glob(pattern)):
@@ -102,7 +109,35 @@ def status(plugin_root, data):
         "policy_error": error,
         "isolation": bool(pol and pol.get("isolation") is True),
         "log_found": changed is not None,
+        "marked": marked_sessions(data),
     }
+
+
+def marked_sessions(data):
+    """The sessions that are marked now: the names of the mark files that are not empty."""
+    out = []
+    for path in sorted(glob.glob(os.path.join(glob.escape(data), "state", "*.taint"))):
+        try:
+            if os.path.getsize(path) > 0:
+                out.append(os.path.basename(path)[:-len(".taint")])
+        except OSError:
+            continue
+    return out
+
+
+def clear_mark(data, session):
+    """Delete one session's mark file and log it. Returns the cleaned name and whether a mark
+    was there. safe_name keeps the name inside <data>/state whatever the request sent."""
+    name = audit.safe_name(session)
+    try:
+        os.unlink(audit.mark_path(data, name))
+    except FileNotFoundError:
+        return name, False
+    audit.write_audit(data, {"session_id": name, "tool_name": "dashboard", "event": "mark-cleared",
+                             "decision": "allow", "rule": "ask-after-injection", "input": {},
+                             "reason": "A person cleared the session mark from the dashboard.",
+                             "agent": "dashboard"}, {})
+    return name, True
 
 
 def policy(plugin_root, data):
@@ -218,12 +253,26 @@ def _route_events(srv, q):
         return _json(400, {"error": "bad cursor"})
 
 
+def _route_inventory(srv, q):
+    return _json(200, discovery.scan(project=srv.project))
+
+
+def _route_clear(srv, q):
+    session = q.get("session", [""])[0]
+    if not session:
+        return _json(400, {"error": "no session"})
+    name, cleared = clear_mark(srv.data, session)
+    return _json(200, {"session": name, "cleared": cleared})
+
+
 ROUTES = {"/": _route_page, "/index.html": _route_page, "/api/status": _route_status,
-          "/api/policy": _route_policy, "/api/events": _route_events}
+          "/api/policy": _route_policy, "/api/events": _route_events,
+          "/api/inventory": _route_inventory}
+POST_ROUTES = {"/api/taint/clear": _route_clear}
 
 
 class Handler(BaseHTTPRequestHandler):
-    """GET only: the standard library answers every other method with 501."""
+    """GET and one POST route: the standard library answers every other method with 501."""
 
     def end_headers(self):  # also runs for the standard library's error pages
         self.send_header("Cache-Control", "no-store")
@@ -234,6 +283,16 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        self._answer(ROUTES)
+
+    def do_POST(self):
+        # A page of another site cannot read the key, and is refused here even if it had it.
+        origin = self.headers.get("Origin")
+        if origin is not None and origin not in {"http://" + h for h in self.server.hosts}:
+            return self.send_error(403)
+        self._answer(POST_ROUTES)
+
+    def _answer(self, routes):
         srv = self.server
         if (self.headers.get("Host") or "").lower() not in srv.hosts:  # DNS rebinding
             return self.send_error(403)
@@ -242,7 +301,7 @@ class Handler(BaseHTTPRequestHandler):
         given = q.get("key", [""])[0].encode("utf-8", "replace")
         if not hmac.compare_digest(given, srv.key.encode("ascii")):
             return self.send_error(403)
-        route = ROUTES.get(path)
+        route = routes.get(path)
         if route is None:
             return self.send_error(404)
         try:
@@ -260,6 +319,7 @@ def make_server(plugin_root, page, data, port, key=None):
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     bound = httpd.server_address[1]
     httpd.plugin_root, httpd.page, httpd.data = str(plugin_root), str(page), str(data)
+    httpd.project = os.getcwd()  # the project the inventory looks at: where the server started
     httpd.key = key or secrets.token_urlsafe(24)
     httpd.hosts = {"127.0.0.1:%d" % bound, "localhost:%d" % bound}
     return httpd
@@ -282,16 +342,30 @@ def main(argv, plugin_root, page, data=None, notes=()):
     """Serve plugin_root's policy and the page. data is the default for --data; notes are extra
     start-up lines, printed after the link, the data folder and the policy lines."""
     ap = argparse.ArgumentParser(prog="guardrails_dashboard",
-                                 description="Local read-only server for the dashboard page.")
+                                 description="Local server for the dashboard page.")
     ap.add_argument("--port", type=int, default=PORT, help="port on 127.0.0.1 (0 picks a free one)")
     ap.add_argument("--data", default=data,
                     help="the plugin data folder to read (default: search for it)")
+    ap.add_argument("--scan", action="store_true",
+                    help="print the NHI and agent inventory of this computer, then exit")
+    ap.add_argument("--install", choices=install.TARGETS,
+                    help="wire the guard into that agent (hooks, no JSON to copy), then exit")
     args = ap.parse_args(argv)
     plugin_root, page = Path(plugin_root), Path(page)
-    folder, others, looked = find_data(args.data, os.environ, os.path.expanduser("~"))
+    if args.scan:
+        _say(discovery.report(discovery.scan()))
+        return 0
+    home = os.path.expanduser("~")
+    folder, others, looked = find_data(args.data, os.environ, home)
+    if args.install:  # the agent logs where this dashboard reads, so one page shows every agent
+        code, lines = install.install(args.install, plugin_root,
+                                      folder or os.path.join(home, OWN_DATA))
+        _say(*lines)
+        return code
     if folder is None:
         _say("No agent-guardrails data folder found. Looked in:", *("  " + p for p in looked),
-             "Start Claude Code with the plugin first, or pass --data FOLDER.")
+             "Start Claude Code with the plugin first (or wire another agent with --install), "
+             "or pass --data FOLDER.")
         return 2
     try:
         httpd = make_server(plugin_root, page, folder, args.port)
@@ -317,7 +391,8 @@ def main(argv, plugin_root, page, data=None, notes=()):
          "  GUARDRAILS_POLICY: %s" % (env_policy or "not set in this shell (if your Claude Code "
                                       "sessions set it, set it here too)"),
          *notes,  # before the last line, so a reader that stops at "Ctrl-C stops it" sees them
-         "  Read-only. Only this computer can connect. Ctrl-C stops it.")
+         "  It reads; its one write clears a session mark when you press that button. Only "
+         "this computer can connect. Ctrl-C stops it.")
     signal.signal(signal.SIGINT, signal.default_int_handler)  # also when a parent set it to ignore
     try:
         httpd.serve_forever()

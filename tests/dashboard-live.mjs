@@ -304,6 +304,44 @@ const firewall = /firewall/i;
   await ctx.close(); await stop(srv);
 }
 
+// ===== cases 60-62: the inventory panel and the one-click clear of a marked session
+{
+  const { ctx, page } = await open("file://" + path.join(REPO, "index.html"));
+  const meta = await page.textContent("#inventory-meta");
+  const bar = await page.evaluate(() => getComputedStyle(document.getElementById("marks-bar")).display);
+  check("60 a file copy shows the made-up inventory and no marked-session bar", meta.startsWith("made-up sample") && bar === "none" && (await page.locator(".inv-card").count()) >= 4, `${meta} ${bar}`);
+  await ctx.close();
+}
+{
+  const data = folder("c61");
+  const home = folder("c61-home");
+  fs.mkdirSync(path.join(home, ".codex"));
+  fs.mkdirSync(path.join(home, ".ssh"), { mode: 0o700 });
+  pre(data, "WebFetch", { url: "https://example.com" }, "f1", "risky");
+  post(data, "WebFetch", { url: "https://example.com" }, "f1", INJECTION, "risky");
+  const markFile = path.join(data, "state", "risky.taint");
+  const srv = await startServer(data, { env: { HOME: home, EXAMPLE_API_KEY: "value-never-shown" } });
+  const { ctx, page } = await open(srv.link);
+  await page.waitForFunction(() => document.querySelectorAll(".inv-card").length > 0, null, { timeout: 8000 }).catch(() => {});
+  const inv = await page.evaluate(() => document.querySelector(".inventory-panel").innerText);
+  check("61 the inventory panel shows this computer's agents, a risk badge and secret names, never a value",
+    /this computer/.test(inv) && /Codex/.test(inv) && /(CRITICAL|HIGH)/.test(inv) && inv.includes("EXAMPLE_API_KEY") && inv.includes("~/.ssh") && !inv.includes("value-never-shown"), inv.slice(0, 300));
+  const btn = page.locator("#marks-list button");
+  const shown = (await btn.count()) === 1 && (await page.textContent("#marks-list")).includes("risky");
+  await btn.click();
+  const said = await page.waitForFunction(() => /cleared/i.test(document.getElementById("live-status").textContent), null, { timeout: 3000 }).then(() => true, () => false);
+  await page.waitForFunction(() => getComputedStyle(document.getElementById("marks-bar")).display === "none", null, { timeout: 5000 }).catch(() => {});
+  const gone = !fs.existsSync(markFile) && (await btn.count()) === 0;
+  pre(data, "Bash", { command: "ls" }, "after-clear", "risky");
+  const asked = lines(data).some((l) => l.tool_use_id === "after-clear" && l.event === "decision");
+  const logged = lines(data).filter((l) => l.event === "mark-cleared" && l.session_id === "risky").length;
+  await page.waitForTimeout(2600);
+  const stays = (await btn.count()) === 0 && (await badge(page)) === "live /api";
+  check("62 one click clears the mark: the bar goes, the file is gone, the next call is not asked, and the log says who did it",
+    shown && gone && !asked && logged === 1 && said && stays && page.dialogs.length === 0, `${shown} ${gone} ${asked} ${logged} ${said} ${stays}`);
+  await ctx.close(); await stop(srv);
+}
+
 // ===== case 53: the two mocked page checks still pass (their events have no cursor)
 for (const script of ["tests/dashboard-check.mjs", "tests/dashboard-regress.mjs"]) {
   const r = spawnSync("node", [script, "index.html"], { cwd: REPO, encoding: "utf8" });
