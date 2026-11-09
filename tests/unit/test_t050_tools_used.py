@@ -14,13 +14,14 @@ import textwrap
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import pytest
+from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[2]
 PLUGIN = ROOT / "packages" / "guardrails-plugin"
-SRC = ":".join(str(ROOT / "packages" / p / "src") for p in ("guardrails-core", "guardrails-dashboard"))
+SRC = ":".join(str(ROOT / "packages" / p / "src")
+                for p in ("guardrails-core", "guardrails-dashboard"))
 ENV = dict(os.environ, PYTHONPATH=SRC, PYTHONDONTWRITEBYTECODE="1")
 TZ = "Pacific/Auckland"  # far from UTC, so a table that shows the raw UTC time fails
 
@@ -43,7 +44,8 @@ CALLS = [
 
 def run_hook(event, payload, data):
     cfg = json.loads((PLUGIN / "hooks" / "hooks.json").read_text())
-    cmd = cfg["hooks"][event][0]["hooks"][0]["command"].replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
+    cmd = cfg["hooks"][event][0]["hooks"][0]["command"]
+    cmd = cmd.replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
     env = {"PATH": "/usr/bin:/bin", "HOME": str(data), "CLAUDE_PLUGIN_ROOT": str(PLUGIN),
            "CLAUDE_PLUGIN_DATA": str(data)}
     out = subprocess.run(["/bin/bash", "-c", cmd], input=json.dumps(payload), capture_output=True,
@@ -54,7 +56,8 @@ def run_hook(event, payload, data):
 def session(data, calls):
     """Run calls through the real hooks the way Claude Code does: Pre, then Post when it ran."""
     for i, (tool, tin, ran) in enumerate(calls):
-        p = {"session_id": "s1", "tool_use_id": "toolu_%d" % i, "tool_name": tool, "tool_input": tin}
+        p = {"session_id": "s1", "tool_use_id": "toolu_%d" % i, "tool_name": tool,
+             "tool_input": tin}
         run_hook("PreToolUse", p, data)
         if ran:
             run_hook("PostToolUse", dict(p, tool_response={"stdout": "ok"}), data)
@@ -66,7 +69,8 @@ def raw_lines(data):
 
 
 def last_ts(data, *tools):
-    return max(r["ts"] for r in raw_lines(data) if r["tool_name"] in tools and r["event"] == "result")
+    return max(r["ts"] for r in raw_lines(data)
+               if r["tool_name"] in tools and r["event"] == "result")
 
 
 def by_name(rows, key):
@@ -130,7 +134,8 @@ def test_api_counts_match_the_audit_log_line_for_line(real_log):
     assert [fetch[k] for k in ("used", "denied", "asked")] == [3, 0, 0]
     assert fetch["last"] == last_ts(real_log, "mcp__fetch__fetch", "mcp__fetch__head")
     inner = by_name(fetch["tools"], "tool")
-    assert sorted(inner) == ["fetch", "head"] and inner["fetch"]["used"] == 2 and inner["head"]["used"] == 1
+    assert sorted(inner) == ["fetch", "head"]
+    assert (inner["fetch"]["used"], inner["head"]["used"]) == (2, 1)
     assert servers["plugin_x_y"]["tools"][0]["tool"] == "ping"
     assert got["calls"] == len(CALLS) and got["skipped"] == 0 and got["truncated"] is False
 
@@ -140,13 +145,15 @@ def test_api_skips_and_counts_malformed_lines_and_joins_a_call_across_two_days(t
     audit.mkdir()
 
     def line(ts, tid, ev, dec):
-        return json.dumps({"ts": ts, "tool_name": "Bash", "tool_use_id": tid, "event": ev, "decision": dec})
+        return json.dumps({"ts": ts, "tool_name": "Bash", "tool_use_id": tid, "event": ev,
+                           "decision": dec})
     (audit / "2026-11-07.jsonl").write_text("\n".join([
         "{not json", '"a string"', "[1,2]", '{"event": "result"}',        # 4 unusable lines
         '{"tool_name": 5, "event": "result"}',                            # 5th: tool name not text
         line("2026-11-07T23:59:59Z", "a", "decision", "ask"),
         "{half a line"]))  # unfinished last line: still being written, not counted
-    (audit / "2026-11-08.jsonl").write_text(line("2026-11-08T00:00:02Z", "a", "result", "ask") + "\n")
+    (audit / "2026-11-08.jsonl").write_text(
+        line("2026-11-08T00:00:02Z", "a", "result", "ask") + "\n")
     got = tools_used(audit)
     assert got["skipped"] == 5 and got["calls"] == 1
     assert got["tools"] == [{"tool": "Bash", "used": 1, "last": "2026-11-08T00:00:02Z",
@@ -181,7 +188,8 @@ SHOT = textwrap.dedent("""
       await p.waitForSelector("#tools-section[data-loaded]", { timeout: 15000 });
       const out = await p.evaluate(() => ({
         heading: document.querySelector("#tools-heading").innerText,
-        empty: (document.querySelector("#tools-empty") || {}).innerText || null,
+        empty: document.querySelector("#tools-empty").hidden ? null
+          : document.querySelector("#tools-empty").innerText,
         note: document.querySelector("#tools-note").innerText,
         header: [...document.querySelectorAll("#tools-table thead th")].map((x) => x.innerText),
         rows: [...document.querySelectorAll("#tools-table tbody tr")].map(
@@ -217,7 +225,7 @@ def test_page_shows_the_table_a_viewer_sees(real_log, tmp_path):
         page = rendered(link, tmp_path)
     finally:
         stop(proc)
-    assert "Tools used" in page["heading"] and page["empty"] is None
+    assert "tools used" in page["heading"].lower() and page["empty"] is None
     assert [h.lower() for h in page["header"]] == [
         "tool", "times used", "last used", "times denied", "times asked"]
     rows = [(r["cls"].split()[-1], r["cells"]) for r in page["rows"]]
@@ -226,12 +234,15 @@ def test_page_shows_the_table_a_viewer_sees(real_log, tmp_path):
     assert ("tools-builtin", ["Read", "2", local(last_ts(real_log, "Read")), "1", "0"]) in rows
     fetch_last = last_ts(real_log, "mcp__fetch__fetch", "mcp__fetch__head")
     assert ("tools-server", ["mcp__fetch__*", "3", local(fetch_last), "0", "0"]) in rows
-    assert ("tools-sub", ["fetch", "2", local(last_ts(real_log, "mcp__fetch__fetch")), "0", "0"]) in rows
-    assert ("tools-sub", ["head", "1", local(last_ts(real_log, "mcp__fetch__head")), "0", "0"]) in rows
-    assert ("tools-server", ["mcp__plugin_x_y__*", "1", local(last_ts(real_log, "mcp__plugin_x_y__ping")),
-                             "0", "0"]) in rows
+    one = last_ts(real_log, "mcp__fetch__fetch")
+    two = last_ts(real_log, "mcp__fetch__head")
+    ping = last_ts(real_log, "mcp__plugin_x_y__ping")
+    assert ("tools-sub", ["fetch", "2", local(one), "0", "0"]) in rows
+    assert ("tools-sub", ["head", "1", local(two), "0", "0"]) in rows
+    assert ("tools-server", ["mcp__plugin_x_y__*", "1", local(ping), "0", "0"]) in rows
     names = [c[0] for _, c in rows]
-    assert names.index("mcp__fetch__*") < names.index("fetch") < names.index("head")  # tools under server
+    # the server's tools sit right under its row
+    assert names.index("mcp__fetch__*") < names.index("fetch") < names.index("head")
     assert len(rows) == 7
 
 
