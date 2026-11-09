@@ -1381,6 +1381,25 @@
       font-size: var(--fs-row);
     }
 
+
+    /* Tools used: one row per tool, one per add-on tool server with its tools under it */
+    .tools-section {
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      padding: 0 0 8px;
+    }
+    .tools-wrap { overflow-x: auto; padding: 0 14px; }
+    .tools-table { width: 100%; border-collapse: collapse; font-size: var(--fs-row); }
+    .tools-table th, .tools-table td { padding: 5px 10px; border-bottom: 1px solid var(--border-subtle); text-align: right; white-space: nowrap; }
+    .tools-table th:first-child, .tools-table td:first-child { text-align: left; font-family: var(--font-mono); white-space: normal; overflow-wrap: anywhere; }
+    .tools-table th { color: var(--text-secondary); font-weight: 600; }
+    .tools-table .tools-server td { font-weight: 700; background: var(--bg-elevated); }
+    .tools-table .tools-sub td:first-child { padding-left: 28px; }
+    .tools-table td.tools-deny.nonzero { color: var(--deny-fg); font-weight: 700; }
+    .tools-table td.tools-ask.nonzero { color: var(--ask-fg); font-weight: 700; }
+    .tools-empty, .tools-note { margin: 0; padding: 8px 14px; color: var(--text-secondary); font-size: var(--fs-row); }
+    .tools-note:empty { display: none; }
+
     /* Bottom Limits Panel */
     .limits-footer {
       background: var(--bg-surface);
@@ -1649,6 +1668,22 @@
       <ul id="events-list" class="events-list"></ul>
     </section>
   </main>
+
+  <!-- Tools used: read from the audit log by /api/tools -->
+  <section id="tools-section" class="tools-section" aria-labelledby="tools-heading">
+    <div class="pane-header">
+      <h2 id="tools-heading" class="pane-title">Tools used</h2>
+      <span class="edit-file-hint">Used: calls that ran. Denied and asked: calls stopped or held for a yes, each counted once.</span>
+    </div>
+    <p id="tools-empty" class="tools-empty" hidden>No tool calls recorded yet</p>
+    <div id="tools-wrap" class="tools-wrap">
+      <table id="tools-table" class="tools-table">
+        <thead><tr><th scope="col">Tool</th><th scope="col">Times used</th><th scope="col">Last used</th><th scope="col">Times denied</th><th scope="col">Times asked</th></tr></thead>
+        <tbody id="tools-body"></tbody>
+      </table>
+    </div>
+    <p id="tools-note" class="tools-note"></p>
+  </section>
 
   <!-- Limits Panel -->
   <footer class="limits-footer" aria-labelledby="limits-heading">
@@ -2110,7 +2145,8 @@
         pollTimer: null,
         clockTimer: null,
         offline: false,
-        retryTimer: null
+        retryTimer: null,
+        tools: null
       };
 
       function cloneObj(o) {
@@ -3154,6 +3190,57 @@
         }
       }
 
+      function toolsCells(tr, label, r) {
+        var cells = [label, r.used, r.last ? new Date(r.last).toLocaleString() : "\u2014", r.denied, r.asked];
+        for (var i = 0; i < cells.length; i++) {
+          var td = el("td", i === 3 ? "tools-deny" : i === 4 ? "tools-ask" : "", cells[i]);
+          if ((i === 3 || i === 4) && cells[i] > 0) td.className += " nonzero";
+          tr.appendChild(td);
+        }
+      }
+
+      function renderTools() {
+        var t = state.tools;
+        var body = document.getElementById("tools-body");
+        var rows = t ? t.tools.length + t.servers.length : 0;
+        clearNode(body);
+        document.getElementById("tools-empty").hidden = rows > 0;
+        document.getElementById("tools-wrap").hidden = rows === 0;
+        if (!t) return;
+        t.tools.forEach(function (r) {
+          var tr = el("tr", "tools-builtin");
+          toolsCells(tr, r.tool, r);
+          body.appendChild(tr);
+        });
+        t.servers.forEach(function (s) {
+          var tr = el("tr", "tools-server");
+          toolsCells(tr, "mcp__" + s.server + "__*", s);
+          body.appendChild(tr);
+          s.tools.forEach(function (r) {
+            var sub = el("tr", "tools-sub");
+            toolsCells(sub, r.tool, r);
+            body.appendChild(sub);
+          });
+        });
+        var notes = [];
+        if (t.skipped) notes.push(t.skipped + (t.skipped === 1 ? " line" : " lines") + " skipped (not readable log lines)");
+        if (t.truncated) notes.push("counts cover only the newest part of the log");
+        document.getElementById("tools-note").textContent = notes.join("; ");
+        document.getElementById("tools-section").setAttribute("data-loaded", "1");
+      }
+
+      /* The table is not essential: a failed read leaves the last table in place. */
+      var toolsBusy = false; // /api/tools rescans the log: one request at a time
+      function refreshTools() {
+        if (toolsBusy) return;
+        toolsBusy = true;
+        fetchJsonWithTimeout(apiUrl("/api/tools"), 5000).then(function (t) {
+          toolsBusy = false;
+          state.tools = t;
+          renderTools();
+        }, function () { toolsBusy = false; });
+      }
+
       function renderAll() {
         var snap = captureUi();
         assignEventKeys(state.events);
@@ -3163,6 +3250,7 @@
         renderTelemetryStrip();
         renderRules();
         renderEvents();
+        renderTools();
         restoreUi(snap);
       }
 
@@ -3224,6 +3312,7 @@
           state.lastTimestamp = last.cursor || last.ts || null;
         }
         renderAll();
+        refreshTools();
         startPollingEvents();
       }
 
@@ -3296,6 +3385,7 @@
                 announce(newEvents.length + (newEvents.length === 1 ? " new event" : " new events"));
               }
               if (changed) renderAll();
+              if (newEvents.length > 0) refreshTools();
             }, goOffline);
         }, 2000);
       }
