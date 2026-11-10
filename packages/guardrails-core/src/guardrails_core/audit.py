@@ -95,6 +95,21 @@ def mark_session(data, session_id, row):
     _append(_state_path(data, session_id, ".taint"), json.dumps(row) + "\n")
 
 
+def mark_row(p, tool, warnings):
+    """What marked a session, for the reason text and for the person reading the dashboard: the
+    call, when, what it fetched and the phrases that matched. Redacted and cut like a log line."""
+    row = redact({"id": p.get("tool_use_id"), "tool": tool,
+                  "markers": [w.get("marker") or w["warning"] for w in warnings],
+                  "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                  "agent": str(p.get("agent") or "claude-code")[:40],
+                  "input": p.get("tool_input", {}),
+                  "excerpts": [str(w.get("excerpt") or "")[:200] for w in warnings]})
+    text = json.dumps(row["input"], ensure_ascii=False)
+    if len(text) > 500:
+        row["input"] = {"truncated": text[:500]}
+    return row
+
+
 def is_marked(data, session_id):
     """True when the mark file is there and not empty. A missing file is False; any other trouble
     (no data folder, a directory in its place, no read permission) is raised, so the caller asks."""

@@ -111,6 +111,7 @@ def status(plugin_root, data):
         "isolation": bool(pol and pol.get("isolation") is True),
         "log_found": changed is not None,
         "marked": marked_sessions(data),
+        "marks": marks(data),
     }
 
 
@@ -123,6 +124,34 @@ def marked_sessions(data):
                 out.append(os.path.basename(path)[:-len(".taint")])
         except OSError:
             continue
+    return out
+
+
+def marks(data):
+    """Why each marked session is marked: since when, and the calls its mark file names (the
+    first 5; `more` counts the rest). A mark from an older hook names no target and no time."""
+    out = []
+    for path in sorted(glob.glob(os.path.join(glob.escape(data), "state", "*.taint"))):
+        try:
+            if os.path.getsize(path) == 0:
+                continue
+            since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(os.stat(path).st_mtime))
+            with open(path, encoding="utf-8", errors="replace") as f:
+                text = f.read(65536)
+        except OSError:
+            continue
+        rows = []
+        for line in text.splitlines():
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(row, dict):
+                rows.append(row)
+        if rows and isinstance(rows[0].get("ts"), str):
+            since = rows[0]["ts"]
+        out.append({"session": os.path.basename(path)[:-len(".taint")], "since": since,
+                    "calls": rows[:5], "more": max(0, len(rows) - 5)})
     return out
 
 

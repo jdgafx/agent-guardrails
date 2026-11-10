@@ -200,16 +200,16 @@ await stop(srv);
   const hostile = "<img src=x onerror=alert(1)>";
   appendLine(data, line(1));
   appendLine(data, line(7, { tool_name: hostile, rule: hostile, step: hostile, tool_use_id: "q'\"><svg onload=alert(3)>", agent: hostile, session_id: hostile, reason: hostile, input: { command: hostile } }));
-  mark(data, "a');alert(2);('");
-  mark(data, hostile);
+  mark(data, "a');alert(2);('", { id: "q'\"><svg onload=alert(4)>", tool: hostile, markers: [hostile], ts: hostile, agent: hostile, input: { url: hostile }, excerpts: [hostile] });
+  mark(data, hostile, { id: 7, tool: 7, markers: "x", input: "y", excerpts: 9 });
   const s = await startServer(data, { env: { HOME } });
   const { ctx, page } = await open(s.link);
   const buttons = await page.locator("[data-clear]").count();
   await page.locator(".row-toggle").first().click();
   await page.locator("[data-clear]").first().click();
   await page.waitForTimeout(600);
-  const r = await page.evaluate((h) => ({ injected: document.querySelectorAll("#audit-table-body img, #audit-table-body svg, #taint-actions img, #filter-agent img").length,
-    shown: document.getElementById("audit-table-body").textContent.includes(h) }), hostile);
+  const r = await page.evaluate((h) => ({ injected: document.querySelectorAll("#audit-table-body img, #audit-table-body svg, #taint-actions img, #taint-actions svg, #filter-agent img").length,
+    shown: document.getElementById("audit-table-body").textContent.includes(h) && document.getElementById("taint-actions").textContent.includes(h) }), hostile);
   check("hostile log and session text is shown as text: no element is made, no dialog opens, no script error",
     buttons === 2 && r.injected === 0 && r.shown && page.dialogs.length === 0 && page.errors.length === 0, `${buttons} ${JSON.stringify(r)} dialogs=${page.dialogs} errors=${page.errors}`);
   await ctx.close(); await stop(s);

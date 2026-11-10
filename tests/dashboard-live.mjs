@@ -127,8 +127,17 @@ const openRow = async (page, index) => {
   check("44 denied call: decision deny, rule deny-env-files", de && de.decision === "deny" && de.rule === "deny-env-files", JSON.stringify(de));
   const cards = await page.evaluate(() => ["kpi-deny-count", "kpi-ask-count", "kpi-flag-count"].map((id) => document.getElementById(id).textContent).join(","));
   const pill = await page.textContent("#taint-label");
-  check("45 cards: 1 denied, 0 asked, 1 flagged; the header says 1 session is marked and offers its Clear button",
-    cards === "1,0,1" && pill === "Session Marked (1)" && (await page.locator("[data-clear]").count()) === 1, `${cards} ${pill}`);
+  const why = await banner(page, "taint-banner");
+  check("45 cards: 1 denied, 0 asked, 1 flagged; the banner names the marked session, the call, the address it fetched, when, and the phrases",
+    cards === "1,0,1" && pill === "Session Marked (1)" && (await page.locator("[data-clear]").count()) === 1
+    && ["Session s1", "WebFetch by claude-code", "https://example.com", "ignore-previous", "exfil-request"].every((t) => why.toLowerCase().includes(t.toLowerCase()))
+    && /marked 20\d\d-\d\d-\d\dT/.test(why) && (await page.locator("#taint-actions a").count()) === 0, `${cards} ${pill} ${why}`);
+  await page.click("[data-session]");
+  const mine = await rows(page);
+  check("45 'Show its events' switches to the audit trail and shows only that session's rows",
+    (await page.inputValue("#filter-search")) === "s1" && mine.length === 2 && mine.every((r) => r.tool !== "Bash") && (await page.evaluate(() => document.getElementById("section-nhi").classList.contains("hidden"))), JSON.stringify(mine.map((r) => r.tool)));
+  await page.click('.tab-btn[data-view="overview"]');
+  await page.click("#reset-filters");
   await page.selectOption("#filter-decision", "deny");
   const onlyDeny = await rows(page);
   await page.click("#reset-filters");
@@ -215,7 +224,7 @@ const openRow = async (page, index) => {
   check("61 the inventory shows this computer's agents, a risk level and secret names, never a value",
     /Codex/.test(inv) && /NOT GUARDED/.test(inv) && /(CRITICAL|HIGH)/.test(inv) && inv.includes("EXAMPLE_API_KEY") && inv.includes("~/.ssh") && /Scanned 20\d\d-/i.test(inv) && !whole.includes("value-never-shown"), inv.slice(0, 300));
   const btn = page.locator("[data-clear]");
-  const shown = (await btn.count()) === 1 && (await btn.textContent()).includes("risky");
+  const shown = (await btn.count()) === 1 && (await btn.getAttribute("aria-label")).includes("risky") && (await banner(page, "taint-banner")).includes("https://example.com");
   await btn.click();
   const said = await page.waitForFunction(() => /cleared/i.test(document.getElementById("live-status").textContent), null, { timeout: 3000 }).then(() => true, () => false);
   const gone = !fs.existsSync(markFile) && (await btn.count()) === 0 && (await banner(page, "taint-banner")) === "";

@@ -613,6 +613,17 @@
       display: none !important;
     }
 
+    /* Why each session is marked: the call, what it fetched, the phrases that matched. */
+    .alert-banner.taint { display: block; }
+    #taint-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+    .mark-card { background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px 14px; }
+    .mark-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .mark-head .mono { word-break: break-all; }
+    .mark-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .mark-calls { list-style: none; display: flex; flex-direction: column; gap: 10px; margin-top: 10px; font-size: 13px; }
+    .mark-target { margin: 3px 0; color: var(--text-primary); word-break: break-all; user-select: all; }
+    .mark-why { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--text-secondary); }
+
     /* Added when this page went into the repo: keyboard access, touch sizes, small screens. */
     .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
     :focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
@@ -681,10 +692,10 @@
           <span>SESSION MARKED AFTER PROMPT-INJECTION FLAG (rule: ask-after-injection)</span>
         </div>
         <div style="font-size: 12.5px; color: var(--text-primary); margin-top: 2px;" id="taint-banner-text">
-          Untrusted output held instruction-like markers. Every non-local tool call now requires human confirmation.
+          Untrusted output held instruction-like markers. Every non-local tool call now requires human confirmation. Each marked session below shows the call that marked it, what it fetched and the phrases that matched. Addresses are text, not links, so a flagged page is never one click away.
         </div>
       </div>
-      <div id="taint-actions" style="display: flex; gap: 8px; flex-wrap: wrap;"></div>
+      <div id="taint-actions"></div>
     </div>
 
     <div id="policy-banner" class="alert-banner policy-err hidden">
@@ -1065,6 +1076,58 @@
       }
     }
 
+    // --- Why a session is marked ---
+    // The mark names the calls that set it and what each fetched. A mark written by an older hook
+    // names no target, so the log rows loaded here are searched for the same call.
+    function targetOf(input) {
+      if (!input || typeof input !== "object") return "";
+      for (const k of ["url", "uri", "href", "query", "q"]) if (typeof input[k] === "string") return input[k];
+      const text = JSON.stringify(input);
+      return text === "{}" ? "" : text;
+    }
+
+    function markView(sid, mark) {
+      const flagged = state.events.filter(e => e.session_id === sid && e.event === "result" && Array.isArray(e.warnings) && e.warnings.length);
+      const named = mark && Array.isArray(mark.calls) ? mark.calls : [];
+      const calls = named.length ? named : flagged.map(e => ({ id: e.tool_use_id, tool: e.tool_name }));
+      return { sid, since: (mark && mark.since) || "", more: (mark && mark.more) || 0, calls: calls.map(c => {
+        const e = flagged.find(x => x.tool_use_id === c.id) || {};
+        const warns = e.warnings || [];
+        return { id: c.id || "", tool: c.tool || "", agent: c.agent || e.agent || "", ts: c.ts || e.ts || "",
+          target: targetOf(c.input) || targetOf(e.input),
+          markers: Array.isArray(c.markers) ? c.markers : warns.map(w => w.marker || w.warning),
+          excerpts: (Array.isArray(c.excerpts) ? c.excerpts : warns.map(w => w.excerpt)).filter(Boolean) };
+      }) };
+    }
+
+    function markHtml(m) {
+      const calls = m.calls.length ? m.calls.map(c => `
+            <li>
+              <div><strong class="mono">${escapeHtml(c.tool || "unknown tool")}</strong>${c.agent ? ` by ${escapeHtml(c.agent)}` : ""}${c.ts ? ` at <span class="mono">${escapeHtml(c.ts)}</span>` : ""}</div>
+              <div class="mark-target mono">${c.target ? highlightRedacted(escapeHtml(c.target)) : `What it fetched is not recorded for this older mark. Search the log for call ${escapeHtml(c.id || "unknown")}.`}</div>
+              <div class="mark-why">${c.markers.map(x => `<span class="badge deny">${escapeHtml(x)}</span>`).join("")}${c.excerpts.map(x => `<span class="mono">&ldquo;${escapeHtml(x)}&rdquo;</span>`).join("")}</div>
+            </li>`).join("") : `<li>The call that marked this session is not named in its mark or in the rows loaded here.</li>`;
+      return `
+        <div class="mark-card">
+          <div class="mark-head">
+            <div><strong>Session <span class="mono">${escapeHtml(m.sid)}</span></strong>${m.since ? ` &bull; marked <span class="mono">${escapeHtml(m.since)}</span>` : ""}</div>
+            <div class="mark-actions">
+              <button type="button" class="btn" data-session="${escapeHtml(m.sid)}" data-focus="events:${escapeHtml(m.sid)}" aria-label="Show the events of session ${escapeHtml(m.sid)}">Show its events</button>
+              <button type="button" class="btn danger" data-clear="${escapeHtml(m.sid)}" data-focus="clear:${escapeHtml(m.sid)}" aria-label="Clear the mark on session ${escapeHtml(m.sid)}">Clear mark</button>
+            </div>
+          </div>
+          <ul class="mark-calls">${calls}</ul>${m.more ? `<div style="margin-top: 8px; color: var(--text-secondary);">and ${escapeHtml(m.more)} more flagged call(s) in this session</div>` : ""}
+        </div>`;
+    }
+
+    function showSession(sid) {
+      switchView("audit");
+      resetAuditFilters();
+      document.getElementById("filter-search").value = sid;
+      renderAuditTable();
+      document.getElementById("audit-title").focus({ preventScroll: true });
+    }
+
     // --- Render Functions ---
     function renderHeader() {
       const st = state.status || {};
@@ -1108,11 +1171,8 @@
         taintPill.className = "pill rose";
         taintLabel.textContent = `Session Marked (${marked.length})`;
         taintBanner.classList.remove("hidden");
-        if (changed("marked", marked)) keepPlace(() => {
-          taintActions.innerHTML = marked.map(sid =>
-            `<button type="button" class="btn danger" data-clear="${escapeHtml(sid)}" data-focus="clear:${escapeHtml(sid)}">Clear mark (${escapeHtml(sid)})</button>`
-          ).join("");
-        });
+        const model = marked.map(sid => markView(sid, (st.marks || []).find(m => m.session === sid)));
+        if (changed("marked", model)) keepPlace(() => { taintActions.innerHTML = model.map(markHtml).join(""); });
       } else {
         taintPill.className = "pill " + (state.everLive ? "emerald" : "");
         taintLabel.textContent = state.everLive ? "Session Mark: Clean" : "Session Mark: --";
@@ -1589,9 +1649,10 @@
 
     // --- Controls: one listener each, no handlers inside the markup ---
     document.addEventListener("click", (ev) => {
-      const t = ev.target.closest("[data-clear], [data-view], [data-nhi], [data-act], tr.event-row");
+      const t = ev.target.closest("[data-clear], [data-session], [data-view], [data-nhi], [data-act], tr.event-row");
       if (!t) return;
       if (t.hasAttribute("data-clear")) return clearSessionMark(t.getAttribute("data-clear"));
+      if (t.hasAttribute("data-session")) return showSession(t.getAttribute("data-session"));
       if (t.hasAttribute("data-view")) return switchView(t.getAttribute("data-view"));
       if (t.hasAttribute("data-nhi")) return setNhiFilter(t.getAttribute("data-nhi"));
       if (t.hasAttribute("data-act")) {

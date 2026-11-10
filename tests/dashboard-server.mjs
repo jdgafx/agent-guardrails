@@ -41,9 +41,9 @@ export function appendLine(data, obj) {
 }
 export const line = (i, more = {}) => ({ ts: new Date(Date.UTC(2026, 10, 7, 20, 0, i)).toISOString().replace(".000", ""), session_id: "s1", tool_name: "Read",
   tool_use_id: "t" + i, event: "decision", decision: i % 2 ? "deny" : "ask", rule: "deny-env-files", step: i, input: { file_path: "/x" + i + ".env" }, agent: "claude-code", ...more });
-export function mark(data, session) { // what the Post hook leaves behind when a reply marks a session
+export function mark(data, session, row = { id: "t9", tool: "WebFetch", markers: ["ignore-previous"] }) { // a mark file as the Post hook writes it
   fs.mkdirSync(path.join(data, "state"), { recursive: true });
-  fs.writeFileSync(path.join(data, "state", session + ".taint"), "marked by a test\n");
+  fs.writeFileSync(path.join(data, "state", session + ".taint"), JSON.stringify(row) + "\n");
 }
 // A home folder with one tight and one loose credential folder, so the inventory is the same on every computer.
 export function home() {

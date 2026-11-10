@@ -6,6 +6,7 @@ that --install writes is then run as the agent would run it.
 import http.client
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -124,6 +125,28 @@ def test_one_post_clears_a_marked_session(dash):
     # a second press finds no mark and writes no second line
     assert json.loads(dash("POST", "/api/taint/clear?session=s1")[1])["cleared"] is False
     assert (dash.data / "state" / "s1.calls").is_file()  # only the mark went, not the counter
+
+
+def test_status_says_why_a_session_is_marked(dash):
+    key = "sk-ant-" + "a1B2" * 6  # built here, so no key-shaped text sits in the repo
+    page = {"session_id": "s1", "tool_use_id": "f7", "tool_name": "WebFetch",
+            "tool_input": {"url": "https://example.com/doc?token=" + key}}
+    hook("pre_tool_use.py", page, dash.data)
+    hook("post_tool_use.py", dict(page, tool_response=INJECTION), dash.data)
+    old = '{"id": "x9", "tool": "WebFetch", "markers": ["ignore-previous"]}\n'
+    (dash.data / "state" / "old.taint").write_text(old)  # a mark as hooks before this wrote it
+    by = {m["session"]: m for m in status(dash)["marks"]}
+    assert sorted(by) == ["old", "s1"] == status(dash)["marked"]
+    call = by["s1"]["calls"][0]
+    assert call["id"] == "f7" and call["tool"] == "WebFetch" and call["agent"] == "claude-code"
+    assert call["input"] == {"url": "https://example.com/doc?token=[REDACTED:anthropic-key]"}
+    assert "ignore-previous" in call["markers"] and len(call["excerpts"]) == len(call["markers"])
+    assert any("ignore previous instructions" in e.lower() for e in call["excerpts"])
+    assert re.fullmatch(r"20\d\d-\d\d-\d\dT\d\d:\d\d:\d\dZ", call["ts"])
+    assert by["s1"]["since"] == call["ts"] and by["s1"]["more"] == 0
+    assert key not in (dash.data / "state" / "s1.taint").read_text()
+    assert by["old"]["calls"] == [json.loads(old)] and re.match(r"20\d\d-", by["old"]["since"])
+    assert asks(dash.data, "s1") and asks(dash.data, "old")  # both shapes still mark the session
 
 
 @pytest.mark.parametrize("how", ["no key", "wrong key", "foreign origin", "foreign host", "GET"])

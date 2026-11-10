@@ -221,9 +221,7 @@ def run_post(raw, root, data):
     if warnings and injection.named_untrusted(pol, tool):
         try:
             _need_data(data)
-            audit.mark_session(data, sid, {"id": p.get("tool_use_id"), "tool": tool,
-                                           "markers": [w.get("marker") or w["warning"]
-                                                       for w in warnings]})
+            audit.mark_session(data, sid, audit.mark_row(p, tool, warnings))
             tainted = True
         except Exception as e:
             errors.append(e)
