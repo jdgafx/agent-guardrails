@@ -2,8 +2,11 @@
 
 Standard library only. It binds 127.0.0.1, refuses any Host header that is not this computer's,
 and refuses every route without the one-time key it makes at start. No part of a URL is ever
-joined into a file path. Every GET only reads. The one POST, /api/taint/clear, deletes the mark
-file of one session (the name is cleaned first) and writes one log line that says so.
+joined into a file path. Every GET only reads. The POST routes are the buttons of the page, and
+each writes one log line that says a person did it: /api/taint/clear deletes the mark file of one
+session, /api/approval/resolve answers one waiting call, /api/session/allow gives a session a pass
+for one policy rule and one tool, /api/session/revoke takes a session's passes back. Names from a
+request are cleaned before they reach a file path.
 
 Two options do their work and exit without serving: --scan prints the NHI and agent inventory,
 --install wires the guard into an agent (see guardrails_core/install.py).
@@ -24,7 +27,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs
 
-from guardrails_core import audit, discovery, install
+from guardrails_core import approval, audit, discovery, install
 from guardrails_core.policy import load_policy
 
 PORT = 8765
@@ -112,6 +115,8 @@ def status(plugin_root, data):
         "log_found": changed is not None,
         "marked": marked_sessions(data),
         "marks": marks(data),
+        "pending": approval.list_pending(data),
+        "session_allows": approval.list_session_allows(data),
     }
 
 
@@ -295,14 +300,56 @@ def _route_clear(srv, q):
     return _json(200, {"session": name, "cleared": cleared})
 
 
+def _route_chain(srv, q):  # reads every day file, so it is its own route and not part of the poll
+    return _json(200, audit.verify_chain(srv.data))
+
+
+def _passable(srv, rule):
+    """Only an ask rule of the policy file can get a session pass: never a built-in ask, and
+    never a deny rule that asks on a shell."""
+    return any(r.get("id") == rule and r.get("decision") == "ask"
+               for r in policy(srv.plugin_root, srv.data).get("rules", []))
+
+
+def _route_resolve(srv, q):
+    req_id, action = q.get("id", [""])[0], q.get("action", [""])[0]
+    if not req_id or action not in approval.ACTIONS:
+        return _json(400, {"error": "need id and action"})
+    waiting = next((r for r in approval.list_pending(srv.data) if r.get("id") == req_id), None)
+    done = waiting and approval.resolve_pending(srv.data, req_id, action,
+                                                _passable(srv, waiting.get("rule")))
+    if not done:
+        return _json(404, {"error": "that call is no longer waiting"})
+    return _json(200, {"id": done["id"], "status": action})
+
+
+def _route_session_allow(srv, q):
+    session, rule, tool = (q.get(k, [""])[0] for k in ("session", "rule", "tool"))
+    if not session or not rule or not tool:
+        return _json(400, {"error": "need session, rule and tool"})
+    if not _passable(srv, rule):
+        return _json(400, {"error": "only a rule of the policy file can be allowed for a session"})
+    return _json(200, approval.allow_for_session(srv.data, session, rule, tool))
+
+
+def _route_session_revoke(srv, q):
+    session = q.get("session", [""])[0]
+    if not session:
+        return _json(400, {"error": "no session"})
+    name, cleared = approval.clear_session_allows(srv.data, session)
+    return _json(200, {"session": name, "cleared": cleared})
+
+
 ROUTES = {"/": _route_page, "/index.html": _route_page, "/api/status": _route_status,
           "/api/policy": _route_policy, "/api/events": _route_events,
-          "/api/inventory": _route_inventory}
-POST_ROUTES = {"/api/taint/clear": _route_clear}
+          "/api/inventory": _route_inventory, "/api/chain": _route_chain}
+POST_ROUTES = {"/api/taint/clear": _route_clear, "/api/approval/resolve": _route_resolve,
+               "/api/session/allow": _route_session_allow,
+               "/api/session/revoke": _route_session_revoke}
 
 
 class Handler(BaseHTTPRequestHandler):
-    """GET and one POST route: the standard library answers every other method with 501."""
+    """GET and the POST routes: the standard library answers every other method with 501."""
 
     def end_headers(self):  # also runs for the standard library's error pages
         self.send_header("Cache-Control", "no-store")
@@ -424,7 +471,8 @@ def main(argv, plugin_root, page, data=None, notes=()):
          "  GUARDRAILS_POLICY: %s" % (env_policy or "not set in this shell (if your Claude Code "
                                       "sessions set it, set it here too)"),
          *notes,  # before the last line, so a reader that stops at "Ctrl-C stops it" sees them
-         "  It reads; its one write clears a session mark when you press that button. Only "
+         "  It reads; it writes only when you press a button (clear a mark, answer a waiting "
+         "call, give or take back a session pass), and logs each. Only "
          "this computer can connect. Ctrl-C stops it.")
     if args.open:  # no browser to start is not an error: the link is printed above
         webbrowser.open(link)

@@ -16,7 +16,8 @@ import subprocess
 
 from .discovery import HOOK_MARK
 
-TARGETS = ("claude", "cursor", "codex")
+TARGETS = ("claude", "cursor", "codex", "mcp")
+MCP_MARK = "guard.py"  # in an MCP server entry: this server already runs through the proxy
 PLUGIN_KEY = "agent-guardrails@agent-guardrails"
 GITHUB = "jdgafx/agent-guardrails"
 # Cursor: (event, block the call when the hook itself fails). The after-hooks only log and scan.
@@ -106,10 +107,54 @@ def _claude(plugin_root):
     return (0 if code == 0 else 2), lines
 
 
+def _wrap_mcp_file(path, guard_py):
+    """Put the guard's proxy in front of every stdio MCP server of one config file. Returns how
+    many were changed. A server reached by URL, or one already wrapped, is left alone; the file as
+    it was is kept beside it the first time. A file in a shape this does not know is not touched."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        return 0
+    servers = cfg.get("mcpServers") if isinstance(cfg, dict) else None
+    if not isinstance(servers, dict):
+        return 0
+    wrapped = 0
+    for name, srv in servers.items():
+        if not isinstance(srv, dict) or not isinstance(srv.get("command"), str) or srv.get("url"):
+            continue
+        args = [str(a) for a in srv["args"]] if isinstance(srv.get("args"), list) else []
+        if any(MCP_MARK in part for part in [srv["command"]] + args):
+            continue
+        srv["args"] = [str(guard_py), "mcp", "--name", str(name), "--", srv["command"]] + args
+        srv["command"] = "python3"
+        wrapped += 1
+    if wrapped:
+        if not os.path.exists(path + ".guardrails-bak"):
+            shutil.copy2(path, path + ".guardrails-bak")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2)
+            f.write("\n")
+    return wrapped
+
+
+def _mcp(plugin_root, home):
+    guard_py = os.path.join(str(plugin_root), "guard.py")
+    lines = []
+    for path in (os.path.join(os.getcwd(), ".mcp.json"), os.path.join(home, ".cursor", "mcp.json")):
+        n = _wrap_mcp_file(path, guard_py)
+        if n:
+            lines.append("%s: %d stdio MCP server(s) now run through the guard (the file as it "
+                         "was: %s.guardrails-bak)" % (path, n, path))
+    return 0, lines or ["No stdio MCP server to wrap in ./.mcp.json or ~/.cursor/mcp.json."]
+
+
 def install(agent, plugin_root, data, home=None):
     """Returns (exit code, lines to print). data is where that agent's hooks will log."""
     if agent == "claude":
         return _claude(plugin_root)
+    if agent == "mcp":
+        return _mcp(plugin_root, home or os.path.expanduser("~"))
     folder = os.path.join(home or os.path.expanduser("~"), "." + agent)
     if not os.path.isdir(folder):
         return 2, ["%s is not set up on this computer (no %s). Nothing was changed."

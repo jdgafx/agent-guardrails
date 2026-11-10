@@ -614,8 +614,10 @@
     }
 
     /* Why each session is marked: the call, what it fetched, the phrases that matched. */
-    .alert-banner.taint { display: block; }
-    #taint-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+    .alert-banner.taint, .alert-banner.pending, .alert-banner.passes { display: block; }
+    .alert-banner.pending { background: var(--amber-bg); border: 1px solid var(--amber-border); }
+    .alert-banner.passes { background: var(--bg-surface); border: 1px solid var(--border-subtle); }
+    #taint-actions, #pending-list, #passes-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
     .mark-card { background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 12px 14px; }
     .mark-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
     .mark-head .mono { word-break: break-all; }
@@ -680,6 +682,10 @@
         <span class="dot"></span>
         <span id="taint-label">Session Mark: --</span>
       </div>
+      <div class="pill" id="chain-pill">
+        <span class="dot"></span>
+        <span id="chain-label">Log chain: --</span>
+      </div>
       <button type="button" class="btn" id="theme-toggle">Light theme</button>
     </div>
   </header>
@@ -688,6 +694,23 @@
     <div id="live-status" class="sr-only" role="status" aria-live="polite"></div>
 
     <!-- Dynamic Alert Banners -->
+    <div id="pending-banner" class="alert-banner pending hidden">
+      <div>
+        <div style="font-weight: 700; color: var(--amber-text);">CALLS WAITING FOR YOUR ANSWER</div>
+        <div style="font-size: 12.5px; color: var(--text-primary); margin-top: 2px;">
+          An agent that cannot ask is holding these calls. A call nobody answers in time is refused.
+        </div>
+      </div>
+      <div id="pending-list"></div>
+    </div>
+
+    <div id="chain-banner" class="alert-banner policy-err hidden">
+      <div>
+        <div style="font-weight: 700; color: var(--amber-text);">THE AUDIT LOG DOES NOT MATCH ITS CHAIN</div>
+        <div class="mono" style="font-size: 12px; color: var(--text-primary); margin-top: 2px;" id="chain-banner-text"></div>
+      </div>
+    </div>
+
     <div id="taint-banner" class="alert-banner taint hidden">
       <div>
         <div style="font-weight: 700; color: var(--rose-text); display: flex; align-items: center; gap: 8px;">
@@ -698,6 +721,16 @@
         </div>
       </div>
       <div id="taint-actions"></div>
+    </div>
+
+    <div id="passes-banner" class="alert-banner passes hidden">
+      <div>
+        <div style="font-weight: 700;">SESSION PASSES IN FORCE</div>
+        <div style="font-size: 12.5px; color: var(--text-secondary); margin-top: 2px;">
+          A pass lets one session run one tool past one ask rule without asking again. It never covers a marked session or the guard's own files.
+        </div>
+      </div>
+      <div id="passes-list"></div>
     </div>
 
     <div id="policy-banner" class="alert-banner policy-err hidden">
@@ -961,6 +994,7 @@
       status: {},
       inventory: null,
       inventoryError: false,
+      chain: null,
       policy: { rules: [] },
       events: [],
       cursor: "",
@@ -1032,7 +1066,7 @@
         }
         document.getElementById("last-poll-label").textContent = "Synced " + new Date().toLocaleTimeString();
         renderChanged();
-        if (first) loadInventory(false);
+        if (first) { loadInventory(false); loadChain(); }
       } catch (err) {
         // No answer: say so, keep whatever rows are on the page, and keep trying.
         state.mode = "offline";
@@ -1056,8 +1090,26 @@
       }).then(renderChanged);
     }
 
+    // The chain check reads every day of the log, so like the scan it runs on load and on Refresh.
+    function loadChain() {
+      if (state.mode !== "live") return;
+      getJson("/api/chain", {}, 15000).then(c => { state.chain = c; }, () => { state.chain = null; }).then(renderChanged);
+    }
+
     function refreshAll() {
-      fetchAll().then(() => loadInventory(true));
+      fetchAll().then(() => { loadInventory(true); loadChain(); });
+    }
+
+    // One of the page's buttons: tell the server, say what happened, and read the new state.
+    async function press(path, params, done, failed) {
+      try {
+        const res = await fetch(apiUrl(path, params), { method: "POST" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        announce(done);
+      } catch (_) {
+        announce(failed);
+      }
+      fetchAll();
     }
 
     // --- Clear Session Mark Action ---
@@ -1083,7 +1135,7 @@
     // names no target, so the log rows loaded here are searched for the same call.
     function targetOf(input) {
       if (!input || typeof input !== "object") return "";
-      for (const k of ["url", "uri", "href", "query", "q"]) if (typeof input[k] === "string") return input[k];
+      for (const k of ["url", "uri", "href", "query", "q", "command", "file_path", "path"]) if (typeof input[k] === "string") return input[k];
       const text = JSON.stringify(input);
       return text === "{}" ? "" : text;
     }
@@ -1127,6 +1179,65 @@
           </div>
           <ul class="mark-calls">${calls}</ul>${m.more ? `<div style="margin-top: 8px; color: var(--text-secondary);">and ${escapeHtml(m.more)} more flagged call(s) in this session</div>` : ""}
         </div>`;
+    }
+
+    // --- Waiting calls, session passes and the log chain ---
+    const passable = rule => ((state.policy && state.policy.rules) || []).some(r => r.id === rule && r.decision === "ask");
+
+    function pendingHtml(r) {
+      const id = escapeHtml(r.id), what = escapeHtml(`${r.tool} by ${r.agent}, session ${r.sid}`);
+      return `
+        <div class="mark-card">
+          <div class="mark-head">
+            <div><strong class="mono">${escapeHtml(r.tool)}</strong> by ${escapeHtml(r.agent)} &bull; session <span class="mono">${escapeHtml(r.sid)}</span> &bull; ${escapeHtml(r.left)}s left</div>
+            <div class="mark-actions">
+              <button type="button" class="btn" data-resolve="${id}" data-action="allow" data-focus="answer:allow:${id}" aria-label="Allow once: ${what}">Allow once</button>
+              ${r.passable ? `<button type="button" class="btn" data-resolve="${id}" data-action="allow-session" data-focus="answer:session:${id}" aria-label="Allow for session: ${what}" title="Also lets this session run ${escapeHtml(r.tool)} past rule ${escapeHtml(r.rule)} without asking again">Allow for session</button>` : ""}
+              <button type="button" class="btn danger" data-resolve="${id}" data-action="deny" data-focus="answer:deny:${id}" aria-label="Deny: ${what}">Deny</button>
+            </div>
+          </div>
+          <div class="mark-target mono">${r.target ? highlightRedacted(escapeHtml(r.target)) : "no input"}</div>
+          <div class="mark-why"><span class="badge ask">${escapeHtml(r.rule)}</span><span>${escapeHtml(r.reason)}</span></div>
+        </div>`;
+    }
+
+    function passHtml(g) {
+      const sid = escapeHtml(g.sid);
+      return `
+        <div class="mark-card">
+          <div class="mark-head">
+            <div><strong>Session <span class="mono">${sid}</span></strong></div>
+            <div class="mark-actions">
+              <button type="button" class="btn" data-revoke="${sid}" data-focus="revoke:${sid}" aria-label="Take back: the passes of session ${sid}">Take back</button>
+            </div>
+          </div>
+          <ul class="mark-calls">${g.rows.map(p => `<li><div class="mark-why"><span class="mono">${escapeHtml(p.tool)}</span><span>past</span><span class="badge ask">${escapeHtml(p.rule)}</span><span>since <span class="mono">${escapeHtml(p.ts || "")}</span></span></div></li>`).join("")}</ul>
+        </div>`;
+    }
+
+    function renderAnswers() {
+      const st = state.status || {}, now = Date.now() / 1000;
+      const pending = (Array.isArray(st.pending) ? st.pending : []).map(r => ({ id: String(r.id || ""), agent: r.agent || "", sid: r.session_id || "", tool: r.tool_name || "",
+        rule: r.rule || "", reason: r.reason || "", target: targetOf(r.input), left: Math.max(0, Math.round((Number(r.expires_at) || 0) - now)), passable: passable(r.rule) }));
+      document.getElementById("pending-banner").classList.toggle("hidden", pending.length === 0);
+      if (changed("pending", pending)) keepPlace(() => { document.getElementById("pending-list").innerHTML = pending.map(pendingHtml).join(""); });
+
+      const groups = [];
+      for (const p of (Array.isArray(st.session_allows) ? st.session_allows : [])) {
+        let g = groups.find(x => x.sid === p.session_id);
+        if (!g) groups.push(g = { sid: p.session_id || "", rows: [] });
+        g.rows.push(p);
+      }
+      document.getElementById("passes-banner").classList.toggle("hidden", groups.length === 0);
+      if (changed("passes", groups)) keepPlace(() => { document.getElementById("passes-list").innerHTML = groups.map(passHtml).join(""); });
+
+      const c = state.chain, pill = document.getElementById("chain-pill"), label = document.getElementById("chain-label");
+      const broken = !!(c && c.ok === false);
+      pill.className = "pill " + (broken ? "rose" : c && c.verified_lines ? "emerald" : "");
+      pill.title = c ? String(c.detail || "") : "Checked when the page loads and on Refresh Now";
+      label.textContent = !c ? "Log chain: --" : broken ? "Log chain: BROKEN" : c.verified_lines ? `Log chain: OK (${c.verified_lines})` : "Log chain: none yet";
+      document.getElementById("chain-banner").classList.toggle("hidden", !broken);
+      document.getElementById("chain-banner-text").textContent = broken ? String(c.detail || "") : "";
     }
 
     function showSession(sid) {
@@ -1190,6 +1301,7 @@
         seen.marked = "";
       }
 
+      renderAnswers();
       const polBanner = document.getElementById("policy-banner");
       if (st.policy_error) {
         polBanner.classList.remove("hidden");
@@ -1510,6 +1622,7 @@
                       Tool Input &amp; Reason (Session: <span class="mono">${escapeHtml(e.session_id || "unknown")}</span>)
                     </div>
                     ${e.reason ? `<div style="margin-bottom:8px; color:var(--amber-text); font-size:12.5px;">${escapeHtml(e.reason)}</div>` : ""}
+                    ${state.mode === "live" && e.event === "decision" && dec === "ask" && passable(e.rule) ? `<div style="margin-bottom:8px;"><button type="button" class="btn" data-pass-rule="${escapeHtml(e.rule)}" data-pass-tool="${escapeHtml(e.tool_name || "")}" data-pass-session="${escapeHtml(e.session_id || "")}" data-focus="pass:${escapeHtml(rowKey)}" title="Lets this session run ${escapeHtml(e.tool_name || "")} past this rule without asking again. Take it back any time under Session passes.">Allow ${escapeHtml(e.rule)} on ${escapeHtml(e.tool_name || "")} for this session</button></div>` : ""}
                     <pre class="json-pre">${highlightRedacted(escapeHtml(JSON.stringify(e.input || {}, null, 2)))}</pre>
                   </div>
                   <div>
@@ -1658,9 +1771,21 @@
 
     // --- Controls: one listener each, no handlers inside the markup ---
     document.addEventListener("click", (ev) => {
-      const t = ev.target.closest("[data-clear], [data-session], [data-view], [data-nhi], [data-act], tr.event-row");
+      const t = ev.target.closest("[data-clear], [data-resolve], [data-revoke], [data-pass-rule], [data-session], [data-view], [data-nhi], [data-act], tr.event-row");
       if (!t) return;
       if (t.hasAttribute("data-clear")) return clearSessionMark(t.getAttribute("data-clear"));
+      if (t.hasAttribute("data-resolve")) {
+        const action = t.getAttribute("data-action");
+        return press("/api/approval/resolve", { id: t.getAttribute("data-resolve"), action }, "Answered: " + action, "That call is no longer waiting");
+      }
+      if (t.hasAttribute("data-revoke")) {
+        const sid = t.getAttribute("data-revoke");
+        return press("/api/session/revoke", { session: sid }, "Passes taken back for session " + sid, "Could not take back the passes of session " + sid);
+      }
+      if (t.hasAttribute("data-pass-rule")) {
+        const rule = t.getAttribute("data-pass-rule"), sid = t.getAttribute("data-pass-session");
+        return press("/api/session/allow", { session: sid, rule, tool: t.getAttribute("data-pass-tool") }, `Session ${sid} may now pass ${rule}`, "Could not give that pass");
+      }
       if (t.hasAttribute("data-session")) return showSession(t.getAttribute("data-session"));
       if (t.hasAttribute("data-view")) return switchView(t.getAttribute("data-view"));
       if (t.hasAttribute("data-nhi")) return setNhiFilter(t.getAttribute("data-nhi"));

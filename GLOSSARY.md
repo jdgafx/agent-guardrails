@@ -82,7 +82,7 @@ Plain-English meanings, with where each one shows up in this repo. Entries are g
 
 **Pre and Post** — Short forms for the two scripts, `hooks/pre_tool_use.py` (the PreToolUse hook) and `hooks/post_tool_use.py` (the PostToolUse hook). A **decision line** in the log is written by Pre for a deny or ask; a **result line** is written by Post after a call ran.
 
-**redaction** — Replacing a secret with a marker such as `[REDACTED:github-token]` before the text is written to the log. It works on seven known key formats only (the AWS secret key only after the label `aws_secret_access_key`, in any case, followed by `=` or `:` with only white space between; not in the quoted JSON form, and not a bare secret).
+**redaction** — Replacing a secret with a marker such as `[REDACTED:github-token]` before the text is written to the log. It works on nine known key formats only (the AWS secret key only after the label `aws_secret_access_key`, in any case, followed by `=` or `:` with only white space between; not in the quoted JSON form, and not a bare secret).
 
 **prompt injection** — Text in a web page or a tool result that tries to give the agent new orders. Here the plugin scans for the six phrases in the shipped `policy.json` in the output of every tool not listed in `trusted_tools` (failed calls too; what it misses: limit 2 in [THREAT_MODEL](docs/THREAT_MODEL.md)). On a hit it tells Claude the result is data, not instructions, and shows you a notice. It does not remove the text. The scan is a signal, not a shield.
 

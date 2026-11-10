@@ -4,7 +4,7 @@
 import fs from "fs";
 import path from "path";
 import { spawnSync } from "child_process";
-import { INJECTION, REPO, TMP, browser, check, dayFile, detail, failures, folder, home, lines, mode, open, post, pre, rowCount, rows, startServer, stop, waitRows } from "./dashboard-server.mjs";
+import { AXE, INJECTION, REPO, TMP, browser, check, dayFile, detail, failures, folder, home, lines, mode, open, post, pre, rowCount, rows, startServer, stop, waitRows, waitingCall } from "./dashboard-server.mjs";
 
 const firewall = /firewall/i;
 const text = (page, sel) => page.evaluate((s) => document.querySelector(s).innerText.replace(/\s+/g, " ").trim(), sel);
@@ -237,6 +237,60 @@ const openRow = async (page, index) => {
   const stays = (await btn.count()) === 0 && (await mode(page)) === "Live 127.0.0.1" && (await rows(page)).some((r) => r.agent === "dashboard" && r.event === "mark-cleared");
   check("62 one click clears the mark: the banner goes, the file is gone, the next call is not asked, and the log and the page say who did it",
     shown && gone && !asked && logged === 1 && said && stays && page.dialogs.length === 0, `${shown} ${gone} ${asked} ${logged} ${said} ${stays}`);
+  await ctx.close(); await stop(srv);
+}
+
+// ===== a waiting call is answered from the page; a session pass is given and taken back; the log chain
+{
+  const data = folder("answers");
+  pre(data, "Bash", { command: "git push origin main" }, "p1", "s1");
+  const srv = await startServer(data);
+  const { ctx, page } = await open(srv.link);
+  const chainOk = await page.textContent("#chain-label");
+  const first = waitingCall(data, "git push origin main");
+  const shown = await page.waitForFunction(() => document.querySelectorAll("#pending-list [data-resolve]").length === 3, null, { timeout: 8000 }).then(() => true, () => false);
+  const card = (await banner(page, "pending-banner")).toLowerCase();
+  const axeOn = async (id) => { await page.addScriptTag({ content: AXE }); return page.evaluate(async (i) => (await axe.run(document.getElementById(i), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"] })).violations.map((x) => `${x.id} ${x.nodes[0].target.join(" ")}`), id); };
+  const a11y = await axeOn("pending-banner");
+  await page.click('#pending-list [data-action="allow-session"]');
+  const answered = await first;
+  await page.waitForFunction(() => document.querySelectorAll("#passes-list [data-revoke]").length === 1, null, { timeout: 6000 }).catch(() => {});
+  const passes = (await banner(page, "passes-banner")).toLowerCase();
+  a11y.push(...await axeOn("passes-banner"));
+  check("70 the waiting-call card and the session-pass card have no accessibility violations", a11y.length === 0, a11y.join("; "));
+  check("70 a call an agent is holding shows as a card with its command and rule; 'Allow for session' lets it run and leaves a pass",
+    shown && ["bash by codex", "cx-1", "git push origin main", "ask-git-push"].every((t) => card.includes(t)) && answered.code === 0 && !/deny|refus/i.test(answered.out)
+    && passes.includes("cx-1") && passes.includes("ask-git-push") && (await banner(page, "pending-banner")) === "", `${shown} | ${card} | ${JSON.stringify(answered)} | ${passes}`);
+  const again = await waitingCall(data, "git push origin main", { id: "w2", wait: "5" });
+  check("70 the pass holds: the same call in that session runs without waiting", again.code === 0 && !/deny|refus/i.test(again.out) && lines(data).filter((l) => l.tool_use_id === "w2" && l.decision === "ask").length === 0, JSON.stringify(again));
+  await page.click("#passes-list [data-revoke]");
+  await page.waitForFunction(() => document.getElementById("passes-banner").classList.contains("hidden"), null, { timeout: 6000 }).catch(() => {});
+  const second = waitingCall(data, "git push origin main", { id: "w3" });
+  await page.waitForFunction(() => document.querySelectorAll("#pending-list [data-resolve]").length === 3, null, { timeout: 8000 }).catch(() => {});
+  await page.click('#pending-list [data-action="deny"]');
+  const refused = await second;
+  check("71 'Take back' ends the pass, so the call waits again, and 'Deny' refuses it",
+    (await banner(page, "passes-banner")) === "" && /Denied in the dashboard/.test(refused.out), JSON.stringify(refused));
+  const who = lines(data).filter((l) => l.agent === "dashboard").map((l) => l.event).join();
+  check("71 the log says what a person did from the dashboard, in order", who === "approval-resolved,session-allow,session-allow-cleared,approval-resolved", who);
+
+  await page.click('.tab-btn[data-view="audit"]');
+  const all = await rows(page);
+  const askRow = all.findIndex((r) => r.event === "decision" && r.decision === "ask" && r.agent === "claude-code");
+  await openRow(page, askRow);
+  await page.click("[data-pass-rule]");
+  await page.waitForFunction(() => document.querySelectorAll("#passes-list [data-revoke]").length === 1, null, { timeout: 6000 }).catch(() => {});
+  pre(data, "Bash", { command: "git push origin main" }, "p9", "s1");
+  check("72 the button on an asked row gives that session a pass, and the real hook then lets the same call through",
+    (await banner(page, "passes-banner")).includes("s1") && lines(data).filter((l) => l.tool_use_id === "p9").length === 0, await banner(page, "passes-banner"));
+
+  const day = dayFile(data);
+  fs.writeFileSync(day, fs.readFileSync(day, "utf8").replace("ask-git-push", "default-allow"));
+  await page.click("#refresh-btn");
+  await page.waitForFunction(() => document.getElementById("chain-label").textContent === "Log chain: BROKEN", null, { timeout: 6000 }).catch(() => {});
+  const broken = await banner(page, "chain-banner");
+  check("73 the log chain is OK on a log the hooks wrote, and BROKEN with the file and line once a logged line is edited",
+    /^Log chain: OK \(\d+\)$/.test(chainOk) && (await page.textContent("#chain-label")) === "Log chain: BROKEN" && /line 1 does not match its chain record/.test(broken), `${chainOk} | ${broken}`);
   await ctx.close(); await stop(srv);
 }
 

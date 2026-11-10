@@ -13,13 +13,20 @@ PATTERNS = [
     ("github-token", re.compile(
         r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,})")),
     ("bearer-token", re.compile(r"(?i)(\bBearer\s+)[A-Za-z0-9._~+/=\-]{8,}")),
+    ("jwt-token", re.compile(
+        r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b")),
+    ("connection-string", re.compile(  # the password only: scheme, user and host stay readable
+        r"(?i)((?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|rediss?|amqps?)"
+        r"://[^:\s/@\"']+:)[^@\s\"']+(@)")),
 ]
 
 
 def redact_text(text):
     """Return text with every known secret format replaced by [REDACTED:<kind>]."""
     for kind, pat in PATTERNS:
-        if pat.groups:
+        if pat.groups == 2:  # keep what stands before and after the secret
+            text = pat.sub(lambda m, k=kind: m.group(1) + "[REDACTED:" + k + "]" + m.group(2), text)
+        elif pat.groups:
             text = pat.sub(lambda m, k=kind: m.group(1) + "[REDACTED:" + k + "]", text)
         else:
             text = pat.sub("[REDACTED:" + kind + "]", text)

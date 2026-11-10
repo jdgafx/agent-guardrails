@@ -16,7 +16,7 @@ import os
 import re
 import sys
 
-from . import hooks
+from . import approval, hooks
 
 AGENTS = ("claude-code", "cursor", "codex", "generic")
 _PATCH_FILE = re.compile(r"^\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+?)\s*$", re.M)
@@ -158,7 +158,18 @@ def check(agent, payload, root, data):
     if not out:
         return False, "allow", ""
     h = json.loads(out)["hookSpecificOutput"]
-    return False, h["permissionDecision"], h["permissionDecisionReason"]
+    decision, reason = h["permissionDecision"], h["permissionDecisionReason"]
+    if decision == "ask" and data and os.environ.get("GUARDRAILS_WEB_APPROVAL") == "1":
+        # Opt-in: hold the call until a person answers it in the dashboard. No answer is a deny.
+        m = re.match(r"\[([^\]]+)\]\s*(.*)", reason, re.S)
+        try:
+            wait = max(1, min(600, int(os.environ.get("GUARDRAILS_APPROVAL_TIMEOUT", "60"))))
+        except ValueError:
+            wait = 60
+        decision, reason = approval.request_approval(
+            data, p.get("agent") or agent, p.get("session_id", "unknown"), p.get("tool_name", ""),
+            p.get("tool_input", {}), m.group(1) if m else "ask", m.group(2) if m else reason, wait)
+    return False, decision, reason
 
 
 def answer(agent, event, decision, reason):

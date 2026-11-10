@@ -68,7 +68,7 @@ def candidate_paths(tool_name, tool_input):
 
 def _glob_hit(path, glob):
     """Globs without a slash match the file name. Others match the whole path."""
-    path, glob = path.lower(), glob.lower()
+    path, glob = path.replace("\\", "/").lower(), glob.replace("\\", "/").lower()
     if "/" in glob:
         full = "/" + path.lstrip("/")  # so "*/.ssh/*" also matches ".ssh/id_rsa"
         return fnmatch.fnmatchcase(full, glob)

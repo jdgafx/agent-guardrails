@@ -11,7 +11,7 @@ log write travels beside it).
 import json
 import os
 
-from . import audit, injection, isolation, redact, rules
+from . import approval, audit, injection, isolation, redact, rules
 from .policy import load_policy
 
 
@@ -145,6 +145,14 @@ def run_pre(raw, root, data):
             d = rules.stronger(d, rules.Decision(
                 "ask", "guardrails-error",
                 "The session mark could not be read (%s). Confirm it." % e, None))
+        if (d is not None and d.decision == "ask" and guard is None and tainted is False
+                and any(r.get("id") == d.rule and r.get("decision") == "ask"
+                        for r in pol.get("rules", []))
+                and approval.is_session_allowed(data, p.get("session_id"), d.rule, tool)):
+            # A person gave this session a pass for this rule and tool. It counts only for a rule
+            # of the policy file, in a session that is not marked, on a call the guard-path check
+            # did not stop: the built-in asks are never waved through.
+            d = rules.Decision("allow", d.rule, "A person allowed this rule for the session.", None)
         step = _count(data, p)
         if d is None:
             if step is None:

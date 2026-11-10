@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -185,6 +186,67 @@ def test_post_is_only_that_one_route(dash):
     assert dash("POST", "/api/status")[0] == 404
     assert dash("POST", "/api/inventory")[0] == 404
     assert dash("PUT", "/api/taint/clear?session=s1")[0] == 501
+
+
+def post(dash, path):
+    code, body = dash("POST", path)
+    return code, json.loads(body)
+
+
+def test_a_session_pass_is_given_listed_and_taken_back_through_the_server(dash):
+    push = {"session_id": "s1", "tool_use_id": "p1", "tool_name": "Bash",
+            "tool_input": {"command": "git push origin main"}}
+    assert "ask-git-push" in hook("pre_tool_use.py", push, dash.data)
+    code, row = post(dash, "/api/session/allow?session=s1&rule=ask-git-push&tool=Bash")
+    assert code == 200 and (row["session_id"], row["rule"], row["tool"]) == (
+        "s1", "ask-git-push", "Bash")
+    assert status(dash)["session_allows"] == [row]
+    assert hook("pre_tool_use.py", dict(push, tool_use_id="p2"), dash.data) == ""  # the real hook
+    # a built-in ask cannot get a pass, and every field is needed
+    assert post(dash, "/api/session/allow?session=s1&rule=step-cap&tool=Bash")[0] == 400
+    assert post(dash, "/api/session/allow?session=s1&rule=ask-git-push")[0] == 400
+    allow = "/api/session/allow?session=s1&rule=ask-git-push&tool=Bash"
+    assert dash("POST", allow, key=False)[0] == 403
+    assert post(dash, "/api/session/revoke?session=s1") == (200, {"session": "s1", "cleared": True})
+    assert status(dash)["session_allows"] == []
+    assert "ask-git-push" in hook("pre_tool_use.py", dict(push, tool_use_id="p3"), dash.data)
+
+
+def test_a_waiting_call_is_listed_and_answered_through_the_server(dash):
+    from guardrails_core import approval
+    got = []
+    t = threading.Thread(target=lambda: got.append(approval.request_approval(
+        str(dash.data), "codex", "cx", "Bash", {"command": "git push"}, "ask-git-push", "why", 5)))
+    t.start()
+    for _ in range(50):
+        waiting = status(dash)["pending"]
+        if waiting:
+            break
+        time.sleep(0.1)
+    assert [(w["agent"], w["rule"], w["status"]) for w in waiting] == [
+        ("codex", "ask-git-push", "pending")]
+    rid = waiting[0]["id"]
+    assert post(dash, "/api/approval/resolve?id=%s&action=maybe" % rid)[0] == 400
+    assert post(dash, "/api/approval/resolve?id=../../x&action=allow")[0] == 404
+    assert post(dash, "/api/approval/resolve?id=%s&action=allow-session" % rid) == (
+        200, {"id": rid, "status": "allow-session"})
+    t.join(timeout=5)
+    assert got == [("allow", "")] and status(dash)["pending"] == []
+    assert [r["rule"] for r in status(dash)["session_allows"]] == ["ask-git-push"]
+    assert post(dash, "/api/approval/resolve?id=%s&action=allow" % rid)[0] == 404  # answered
+
+
+def test_the_chain_route_says_when_a_log_line_was_edited(dash):
+    assert json.loads(dash("GET", "/api/chain")[1])["detail"] == "No audit log yet"
+    hook("pre_tool_use.py", {"session_id": "s1", "tool_use_id": "d1", "tool_name": "Read",
+                             "tool_input": {"file_path": ".env"}}, dash.data)
+    ok = json.loads(dash("GET", "/api/chain")[1])
+    assert ok["ok"] is True and ok["verified_lines"] == 1
+    day = next((dash.data / "audit").glob("*.jsonl"))
+    day.write_text(day.read_text().replace("deny-env-files", "default-allow"))
+    bad = json.loads(dash("GET", "/api/chain")[1])
+    assert bad["ok"] is False and bad["tampered_file"] == day.name
+    assert dash("GET", "/api/chain", key=False)[0] == 403
 
 
 # ---- the command line: --scan and --install

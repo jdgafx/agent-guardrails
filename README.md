@@ -58,7 +58,7 @@ No account and no sign-up for the plugin or the dashboard: the dashboard reads t
 | **Flag** | Tool output with one of six injection phrases is flagged. Claude is told it is data, not instructions, and you see a notice. The text is not removed. | A page that says "ignore previous instructions" |
 | **Session mark** | After a flag on WebFetch, WebSearch or MCP read output, every step except local file tools and a few planning tools asks until the session ends. | A shell command after such a page |
 
-A rule that would deny a shell command asks instead, so you can still say yes. After 200 calls in one session, a call that no rule matches asks. Every deny, ask and call that ran is one JSON line in the log (file mode 0600), with seven key formats replaced by `[REDACTED:kind]`. Words used here are in the [glossary](GLOSSARY.md).
+A rule that would deny a shell command asks instead, so you can still say yes. After 200 calls in one session, a call that no rule matches asks. Every deny, ask and call that ran is one JSON line in the log (file mode 0600), with nine secret formats replaced by `[REDACTED:kind]`. Words used here are in the [glossary](GLOSSARY.md).
 
 ## Known limits
 

@@ -54,6 +54,20 @@ export function home() {
   return h;
 }
 
+// An agent that cannot ask (Codex), with the opt-in that makes its ask wait for the dashboard.
+// Resolves with what the real adapter printed for the agent once somebody answered, or time ran out.
+export function waitingCall(data, command, { session = "cx-1", id = "w1", wait = "20" } = {}) {
+  return new Promise((resolve) => {
+    const proc = spawn("python3", [path.join(PLUGIN, "guard.py"), "hook", "codex", "--data", data],
+      { env: { PATH: "/usr/bin:/bin", HOME: data, GUARDRAILS_WEB_APPROVAL: "1", GUARDRAILS_APPROVAL_TIMEOUT: wait } });
+    let out = "";
+    proc.stdout.on("data", (d) => { out += d; });
+    proc.stderr.on("data", (d) => { out += d; });
+    proc.on("exit", (code) => resolve({ code, out }));
+    proc.stdin.end(JSON.stringify({ hook_event_name: "PreToolUse", session_id: session, tool_use_id: id, tool_name: "Bash", tool_input: { command } }));
+  });
+}
+
 // ---- the real server, as a subprocess
 export function startServer(data, { port = 0, env = {} } = {}) {
   return new Promise((resolve, reject) => {

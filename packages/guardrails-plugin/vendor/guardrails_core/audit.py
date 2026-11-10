@@ -1,9 +1,16 @@
 """Audit log (one JSON object per line), the per-session call counter and the decision memo."""
+import glob
+import hashlib
 import json
 import os
 import re
 import stat
 import time
+
+try:
+    import fcntl  # not on Windows: there the chain is written without a lock
+except ImportError:
+    fcntl = None
 
 from .redact import redact
 
@@ -24,6 +31,93 @@ def _append(path, line):
         os.close(fd)
 
 
+GENESIS = "0" * 64
+
+
+def _line_hash(prev, raw):
+    return hashlib.sha256(prev.encode("ascii") + b"\n" + raw).hexdigest()
+
+
+def _append_chained(folder, day, raw_line):
+    """Append the log line and its chain record `<n> <previous hash> <hash>` as one step.
+
+    The chain file is locked for both writes, so two hooks at the same moment cannot cross. When
+    the chain cannot be opened or written the log line is still written: a line with no chain
+    record shows up in verify_chain, a missing log line would not."""
+    log, chain = os.path.join(folder, day + ".jsonl"), os.path.join(folder, day + ".chain")
+    try:
+        fd = os.open(chain, os.O_RDWR | os.O_APPEND | os.O_CREAT, 0o600)
+    except OSError:
+        return _append(log, raw_line)
+    try:
+        if fcntl:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        seq, prev = 1, GENESIS
+        try:
+            size = os.fstat(fd).st_size
+            os.lseek(fd, max(0, size - 200), os.SEEK_SET)
+            tail = os.read(fd, 200).splitlines()[-1].split() if size else []
+            if len(tail) == 3:
+                seq, prev = int(tail[0]) + 1, tail[2].decode("ascii")
+        except (OSError, ValueError, IndexError):
+            pass  # an unreadable tail starts a new run; verify_chain reports the break
+        _append(log, raw_line)
+        try:
+            digest = _line_hash(prev, raw_line.rstrip("\n").encode("utf-8"))
+            os.write(fd, ("%d %s %s\n" % (seq, prev, digest)).encode("ascii"))
+        except OSError:
+            pass
+    finally:
+        os.close(fd)  # closing lets the lock go
+
+
+def verify_chain(data):
+    """Check every day's log against its chain. Returns {ok, verified_lines, unchained_lines,
+    tampered_file, detail}.
+
+    A chain covers the lines written since it began, so it is matched against the end of its log:
+    lines written before the chain existed (an older hook, the day of an update) are counted as
+    unchained, not as tampering. A day with no chain file is unchained too.
+
+    What it shows: a logged line was edited, removed or added by something that did not also
+    rewrite the chain. It does not stop a program running as this user that rewrites both files.
+    """
+    folder = os.path.join(data, "audit")
+    out = {"ok": True, "verified_lines": 0, "unchained_lines": 0, "tampered_file": None}
+    for log in sorted(glob.glob(os.path.join(glob.escape(folder), "*.jsonl"))):
+        name = os.path.basename(log)
+        try:
+            with open(log, "rb") as f:
+                lines = f.read().splitlines()
+            try:
+                with open(log[:-len(".jsonl")] + ".chain", "rb") as f:
+                    records = f.read().splitlines()
+            except FileNotFoundError:
+                out["unchained_lines"] += len(lines)
+                continue
+        except OSError as e:
+            return dict(out, ok=False, tampered_file=name, detail="Cannot read %s: %s" % (name, e))
+        if len(records) > len(lines):
+            return dict(out, ok=False, tampered_file=name,
+                        detail="%s has %d lines but %d chain records: lines were removed"
+                               % (name, len(lines), len(records)))
+        first = len(lines) - len(records)
+        out["unchained_lines"] += first
+        prev = GENESIS
+        for n, (raw, record) in enumerate(zip(lines[first:], records), 1):
+            parts, at = record.decode("ascii", "replace").split(), first + n
+            if (len(parts) != 3 or parts[0] != str(n) or parts[1] != prev
+                    or parts[2] != _line_hash(prev, raw)):
+                return dict(out, ok=False, tampered_file=name,
+                            detail="%s line %d does not match its chain record" % (name, at))
+            prev = parts[2]
+            out["verified_lines"] += 1
+    if not out["verified_lines"] and not out["unchained_lines"]:
+        return dict(out, detail="No audit log yet")
+    return dict(out, detail="%d line(s) match their chain; %d line(s) written before the chain "
+                            "began" % (out["verified_lines"], out["unchained_lines"]))
+
+
 def write_audit(data, record, policy):
     """Append one redacted line to <data>/audit/<UTC date>.jsonl. Returns the record written."""
     cfg = policy.get("audit", {})
@@ -42,7 +136,7 @@ def write_audit(data, record, policy):
     _private_dir(folder)
     day = time.strftime("%Y-%m-%d", time.gmtime())
     # ensure_ascii (the default): the line is ASCII, so a lone surrogate cannot break the write
-    _append(os.path.join(folder, day + ".jsonl"), json.dumps(rec) + "\n")
+    _append_chained(folder, day, json.dumps(rec) + "\n")
     return rec
 
 
