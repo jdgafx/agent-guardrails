@@ -106,7 +106,7 @@ requires-dist = [{ name = "guardrails-core", editable = "packages/guardrails-cor
 
 [[package]]
 name = "guardrails-plugin"
-version = "0.2.0"
+version = "0.3.0"
 source = { virtual = "packages/guardrails-plugin" }
 
 [[package]]
