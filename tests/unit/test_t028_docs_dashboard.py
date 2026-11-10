@@ -21,7 +21,7 @@ def test_no_doc_says_there_is_no_ui_or_dashboard():
 def test_architecture_says_the_repo_ships_a_static_dashboard():
     assert (ROOT / "index.html").is_file()
     assert "`index.html`" in ARCH and "static dashboard" in ARCH
-    assert "/api" in ARCH and "sample data" in ARCH
+    assert "/api" in ARCH and "no sample data" in ARCH
 
 
 def test_the_no_server_claim_is_true_in_the_code():

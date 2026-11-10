@@ -63,7 +63,7 @@ A rule that would deny a shell command asks instead, so you can still say yes. A
 
 Which layer holds which threat, one table: "What holds each threat" in [THREAT_MODEL](docs/THREAT_MODEL.md#what-holds-each-threat).
 
-![The dashboard on made-up sample events: the policy rules on the left, the security events on the right. A made-up key, no real data.](docs/screenshots/dashboard.png)
+![The dashboard on a test log written by the real hooks: summary cards on top, then the agent and secret inventory, the audit trail and the rules. A made-up key, no real data.](docs/screenshots/dashboard.png)
 
 ## Other agents
 

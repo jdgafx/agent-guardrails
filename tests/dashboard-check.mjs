@@ -1,98 +1,41 @@
-// Acceptance check for the agent-guardrails dashboard fixes.
-// Usage: node agent-guardrails-dashboard-check.mjs <path-to-dashboard.html>
-// Needs: playwright (chromium) and axe-core resolvable from the current folder.
-//   npm i -D playwright axe-core && npx playwright install chromium
-// Optional: CHROMIUM_PATH=/path/to/chrome to use a specific browser binary.
+// Acceptance check for the dashboard page: accessibility, contrast, sizes, focus, and text-only handling of log strings.
+// It runs the page against the real server on real log files. Nothing is mocked.
+// Usage: node tests/dashboard-check.mjs index.html   (run from the repo root; needs playwright, axe-core and python3)
 // Exit 0 = every check passed. Each failure prints one line.
-
-import { createRequire } from "module";
 import fs from "fs";
-const require = createRequire(process.cwd() + "/");
-const { chromium } = require("playwright");
-const AXE = fs.readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
+import path from "path";
+import { AXE, REPO, appendLine, browser, check, detail, failures, folder, home, line, mark, mode, open, rowCount, startServer, stop } from "./dashboard-server.mjs";
 
-const file = process.argv[2];
-if (!file) { console.error("usage: node check.mjs <dashboard.html>"); process.exit(2); }
-const HTML = fs.readFileSync(file, "utf8");
-const SECRET = "/x4-export-leak-marker";
-
-const launchOpts = { args: ["--no-sandbox"] };
-if (process.env.CHROMIUM_PATH) launchOpts.executablePath = process.env.CHROMIUM_PATH;
-const browser = await chromium.launch(launchOpts);
-
-const results = [];
-const check = (name, ok, detail = "") => {
-  results.push({ name, ok });
-  console.log(`${ok ? "PASS" : "FAIL"}  ${name}${ok || !detail ? "" : "  ->  " + detail}`);
-};
-
-function liveData() {
-  const events = [1, 2, 3, 4, 5].map((i) => ({
-    ts: `2026-11-07T20:0${i}:00Z`, event: "decision",
-    decision: i % 2 ? "deny" : "ask", tool_name: "Read", rule: "r1",
-    tool_use_id: "t" + i, session_id: "s1", step: i,
-    input: { file_path: i === 4 ? SECRET : "/x" + i },
-  }));
-  return {
-    events,
-    status: { plugin_loaded: true, policy_loaded: true, log_found: true, isolation: false, step_cap: 200 },
-    policy: { version: 1, rules: [
-      { id: "r1", decision: "deny", kind: "path", reason: "test rule one", match: ["/x*"] },
-      { id: "r2", decision: "ask", kind: "command", reason: "test rule two", match: ["rm"] },
-    ] },
-  };
+const HOME = home();
+const base = folder("base");
+for (const i of [1, 2, 3, 4, 5]) appendLine(base, line(i));
+const srv = await startServer(base, { env: { HOME } });
+const theme = (page) => page.evaluate(() => document.documentElement.getAttribute("data-theme"));
+async function setTheme(page, want) {
+  if ((await theme(page)) !== want) await page.click("#theme-toggle");
+  await page.waitForTimeout(300); // let transitions finish
 }
 
-async function open({ width = 1440, height = 900, live = false, colorScheme = "dark", touch = false, data, qs = "" } = {}) {
-  const ctx = await browser.newContext({
-    viewport: { width, height }, colorScheme, hasTouch: touch, isMobile: touch, acceptDownloads: true,
-  });
-  const page = await ctx.newPage();
-  const d = data || liveData();
-  await page.route("**/*", (r) => {
-    const u = new URL(r.request().url());
-    if (u.pathname === "/") return r.fulfill({ status: 200, contentType: "text/html", body: HTML });
-    if (!live) return r.fulfill({ status: 404, body: "" });
-    if (u.pathname === "/api/status") return r.fulfill({ json: d.status });
-    if (u.pathname === "/api/policy") return r.fulfill({ json: d.policy });
-    if (u.pathname === "/api/events") {
-      const after = u.searchParams.get("after");
-      return r.fulfill({ json: after ? d.events.filter((e) => e.ts > after) : d.events });
-    }
-    return r.fulfill({ status: 404, body: "" });
-  });
-  await page.goto("http://dash.test/" + qs);
-  await page.waitForTimeout(1500);
-  return { ctx, page, data: d };
-}
-
-async function setTheme(page, theme) {
-  const cur = await page.evaluate(() => document.documentElement.getAttribute("data-theme"));
-  if (cur !== theme) await page.click("#theme-toggle");
-  await page.waitForTimeout(400); // let transitions finish
-}
-
-// 1. axe, both themes, a drawer open, desktop and phone
+// 1. axe, both themes, a row open, desktop and phone
 for (const [w, h] of [[1440, 900], [390, 844]]) {
-  for (const theme of ["dark", "light"]) {
-    const { ctx, page } = await open({ width: w, height: h });
-    await setTheme(page, theme);
-    const toggle = page.locator("[aria-expanded]").first();
-    if (await toggle.count()) await toggle.click();
+  for (const t of ["dark", "light"]) {
+    const { ctx, page } = await open(srv.link, { width: w, height: h });
+    await setTheme(page, t);
+    await page.locator(".row-toggle").first().click();
     await page.addScriptTag({ content: AXE });
     const v = await page.evaluate(async () =>
       (await axe.run(document, { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"] }))
         .violations.map((x) => `${x.id} (${x.nodes.length}) e.g. ${x.nodes[0].target.join(" ")}`));
-    check(`axe: no WCAG 2.2 AA or best-practice violations, ${theme}, ${w}px`, v.length === 0, v.join("; "));
+    check(`axe: no WCAG 2.2 AA or best-practice violations, ${t}, ${w}px`, v.length === 0, v.join("; "));
     await ctx.close();
   }
 }
 
-// 2. Non-text contrast of tokens (1.4.11), resolved through the browser
+// 2. Contrast of the colour tokens, resolved through the browser (text 4.5, controls and status colours 3)
 {
-  const { ctx, page } = await open();
-  for (const theme of ["dark", "light"]) {
-    await setTheme(page, theme);
+  const { ctx, page } = await open(srv.link);
+  for (const t of ["dark", "light"]) {
+    await setTheme(page, t);
     const bad = await page.evaluate(() => {
       const probe = document.createElement("div"); document.body.appendChild(probe);
       const rgb = (v) => { probe.style.color = ""; probe.style.color = v; return getComputedStyle(probe).color.match(/[\d.]+/g).map(Number); };
@@ -100,107 +43,76 @@ for (const [w, h] of [[1440, 900], [390, 844]]) {
       const lum = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
       const cr = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
       const tok = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
-      const bgs = ["--bg-surface", "--bg-elevated", "--bg-canvas", "--bg-selected", "--bg-hover"];
-      const ui = ["--border-control", "--border-focus", "--deny-solid", "--ask-solid", "--allow-solid", "--inj-solid"];
+      const bgs = ["--bg-base", "--bg-surface", "--bg-elevated", "--bg-hover"];
       const out = [];
-      for (const f of ui) {
-        if (!tok(f)) { out.push(`${f} missing`); continue; }
-        for (const b of bgs) { const r = cr(rgb(tok(f)), rgb(tok(b))); if (r < 3) out.push(`${f} on ${b} ${r.toFixed(2)}`); }
-      }
-      for (const f of ["--text-primary", "--text-secondary", "--text-muted", "--accent-blue"]) {
-        for (const b of bgs) { const r = cr(rgb(tok(f)), rgb(tok(b))); if (r < 4.5) out.push(`${f} on ${b} ${r.toFixed(2)}`); }
+      for (const [list, min] of [[["--border-field", "--cyan", "--emerald", "--amber", "--rose", "--violet"], 3],
+        [["--text-primary", "--text-secondary", "--text-muted", "--cyan-text", "--emerald-text", "--amber-text", "--rose-text", "--violet-text", "--pre-text"], 4.5]]) {
+        for (const f of list) {
+          if (!tok(f)) { out.push(`${f} missing`); continue; }
+          for (const b of bgs) { const r = cr(rgb(tok(f)), rgb(tok(b))); if (r < min) out.push(`${f} on ${b} ${r.toFixed(2)}`); }
+        }
       }
       probe.remove(); return out;
     });
-    check(`token contrast: text >= 4.5, controls and decision fills >= 3, ${theme}`, bad.length === 0, bad.join("; "));
+    check(`token contrast: text >= 4.5, controls and status colours >= 3, ${t}`, bad.length === 0, bad.join("; "));
   }
   await ctx.close();
 }
 
-// 3. No sideways scroll on phones, both themes
+// 3. No sideways scroll on phones
 for (const w of [390, 360]) {
-  const { ctx, page } = await open({ width: w, height: 800 });
+  const { ctx, page } = await open(srv.link, { width: w, height: 800 });
   const sw = await page.evaluate(() => document.documentElement.scrollWidth);
   check(`no horizontal scroll at ${w}px`, sw <= w, `scrollWidth ${sw}`);
   await ctx.close();
 }
 
-// 4. Live refresh keeps keyboard focus and open drawers
+// 4. The summary cards and the rows work from the keyboard
 {
-  const { ctx, page, data } = await open({ live: true });
-  const rule = page.locator('[data-rule-id="r2"]').first();
-  await rule.focus();
-  await page.waitForTimeout(2600);
-  const still = await page.evaluate(() => document.activeElement && document.activeElement.closest('[data-rule-id="r2"]') !== null);
-  check("focus on a rule survives a live poll", still);
-
-  const toggles = page.locator(".events-list [aria-expanded]");
-  await toggles.nth(1).click();
-  const before = await page.locator('.events-list [aria-expanded="true"]').count();
-  data.events.push({ ts: "2026-11-07T20:09:00Z", event: "decision", decision: "allow", tool_name: "Read",
-    rule: "r2", tool_use_id: "t6", session_id: "s1", step: 6, input: { file_path: "/x6" } });
-  await page.waitForTimeout(2600);
-  const openText = await page.evaluate(() => {
-    const t = document.querySelector('.events-list [aria-expanded="true"]');
-    if (!t) return "";
-    const panel = document.getElementById(t.getAttribute("aria-controls") || "");
-    return panel ? panel.textContent : "";
-  });
-  check("an open event drawer stays open, on the same event, when a new event arrives",
-    before === 1 && openText.includes("t4"), `open drawer text: ${openText.slice(0, 80)}`);
-  await ctx.close();
-}
-
-// 5. Rule link inside an event works from the keyboard and does not toggle the drawer
-{
-  const { ctx, page } = await open();
-  const link = page.locator(".rule-link-btn").first();
-  const id = (await link.textContent()).trim();
-  const ownToggle = await link.evaluate((el) => {
-    const item = el.closest('[role="listitem"], li');
-    const t = item && item.querySelector("[aria-expanded]");
-    return t ? t.getAttribute("aria-expanded") : null;
-  });
-  await link.focus();
+  const { ctx, page } = await open(srv.link);
+  await page.locator('[data-act="decision:deny"]').focus();
   await page.keyboard.press("Enter");
-  await page.waitForTimeout(300);
-  const after = await page.evaluate(() => document.getElementById("filter-rule").value);
-  const toggled = await page.evaluate(() => document.querySelectorAll('.events-list [aria-expanded="true"]').length);
-  check("Enter on a rule link filters by that rule and opens no drawer",
-    after === id && ownToggle === "false" && toggled === 0, `filter=${after}, drawers open=${toggled}`);
-  await ctx.close();
-}
+  await page.waitForTimeout(200);
+  const r = await page.evaluate(() => ({
+    filter: document.getElementById("filter-decision").value,
+    rows: document.querySelectorAll("#audit-table-body tr.event-row").length,
+    open: document.querySelectorAll("#audit-table-body tr.detail-row").length,
+    inventoryHidden: document.getElementById("section-nhi").classList.contains("hidden"),
+  }));
+  check("Enter on the Denied card filters the audit table to the 3 denied calls and opens no row",
+    r.filter === "deny" && r.rows === 3 && r.open === 0 && r.inventoryHidden, JSON.stringify(r));
 
-// 6. Focus ring is not clipped by a scrolling list
-{
-  const { ctx, page } = await open();
+  // 5. The focus ring of a row is visible and not clipped by the scrolling table
   const clipped = await page.evaluate(() => {
-    const out = [];
-    const targets = [document.querySelector(".rule-row, .rules-list button"), document.querySelector(".events-list [aria-expanded]")];
-    for (const el of targets) {
-      if (!el) { out.push("target missing"); continue; }
-      el.focus({ preventScroll: false });
-      const cs = getComputedStyle(el);
-      const ext = parseFloat(cs.outlineOffset) + parseFloat(cs.outlineWidth);
-      let sc = el.parentElement;
-      while (sc && !/(auto|scroll|hidden)/.test(getComputedStyle(sc).overflowY + getComputedStyle(sc).overflowX)) sc = sc.parentElement;
-      if (!sc) continue;
-      const r = el.getBoundingClientRect(), c = sc.getBoundingClientRect();
-      if (cs.outlineStyle === "none" && cs.boxShadow === "none") out.push(`${el.className}: no focus indicator`);
-      else if (r.left - ext < c.left - 0.5 || r.right + ext > c.right + 0.5) out.push(`${el.className}: ring clipped by ${sc.className}`);
-    }
-    return out;
+    const el = document.querySelector("#audit-table-body .row-toggle");
+    if (!el) return ["row toggle missing"];
+    el.focus();
+    const cs = getComputedStyle(el), ext = parseFloat(cs.outlineOffset) + parseFloat(cs.outlineWidth);
+    const b = el.getBoundingClientRect(), c = el.closest(".table-wrap").getBoundingClientRect();
+    if (cs.outlineStyle === "none" || parseFloat(cs.outlineWidth) < 2) return ["no focus ring"];
+    return b.left - ext < c.left - 0.5 || b.right + ext > c.right + 0.5 ? ["ring clipped by the table"] : [];
   });
-  check("focus ring on rule rows and event toggles is fully visible", clipped.length === 0, clipped.join("; "));
+  check("focus ring on an event row is fully visible", clipped.length === 0, clipped.join("; "));
+
+  // 6. Toggle buttons say their state
+  await page.click('.tab-btn[data-view="nhi"]');
+  await page.waitForFunction(() => document.querySelectorAll("#nhi-list-container .nhi-item").length > 0, null, { timeout: 8000 }).catch(() => {});
+  const a = await page.getAttribute("#nhi-btn-loose", "aria-pressed");
+  await page.click("#nhi-btn-loose"); await page.waitForTimeout(150);
+  const b = await page.getAttribute("#nhi-btn-loose", "aria-pressed");
+  const loose = await page.evaluate(() => [...document.querySelectorAll("#nhi-list-container .nhi-name")].map((n) => n.textContent));
+  const tab = await page.getAttribute('.tab-btn[data-view="nhi"]', "aria-pressed");
+  check("the Loose Mode filter and the view tabs flip aria-pressed, and the filter shows only the loose folder",
+    a === "false" && b === "true" && loose.join() === "~/.aws" && tab === "true", `before=${a} after=${b} loose=${loose} tab=${tab}`);
   await ctx.close();
 }
 
 // 7. Target sizes: >= 24px everywhere, >= 44px on touch phones
 for (const [touch, min, w] of [[false, 24, 1440], [true, 44, 390]]) {
-  const { ctx, page } = await open({ width: w, height: 844, touch });
-  const small = await page.evaluate((min) => [...document.querySelectorAll("button, select, a[href], [role=button], [tabindex]")]
+  const { ctx, page } = await open(srv.link, { width: w, height: 844, touch });
+  const small = await page.evaluate((min) => [...document.querySelectorAll("button, select, input, a[href], [role=button], [tabindex]")]
     .filter((e) => e.offsetParent && e.getAttribute("tabindex") !== "-1")
-    .map((e) => { const r = e.getBoundingClientRect(); return { c: (e.className || e.tagName).toString().split(" ")[0], h: Math.round(r.height), w: Math.round(r.width) }; })
+    .map((e) => { const r = e.getBoundingClientRect(); return { c: (e.id || e.className || e.tagName).toString().split(" ")[0], h: Math.round(r.height), w: Math.round(r.width) }; })
     .filter((x) => x.h < min || x.w < min)
     .map((x) => `${x.c} ${x.w}x${x.h}`), min);
   const uniq = [...new Set(small)];
@@ -208,58 +120,20 @@ for (const [touch, min, w] of [[false, 24, 1440], [true, 44, 390]]) {
   await ctx.close();
 }
 
-// 8. Theme follows the OS on first visit and remembers the choice
+// 8. Dark is the default whatever the OS says, and the viewer's choice survives a reload
 {
-  const { ctx, page } = await open({ colorScheme: "light" });
-  const first = await page.evaluate(() => document.documentElement.getAttribute("data-theme"));
+  const { ctx, page } = await open(srv.link, { colorScheme: "light" });
+  const first = await theme(page);
   await page.click("#theme-toggle");
   await page.waitForTimeout(200);
-  const chosen = await page.evaluate(() => document.documentElement.getAttribute("data-theme"));
+  const chosen = await theme(page);
   await page.reload(); await page.waitForTimeout(1200);
-  const again = await page.evaluate(() => document.documentElement.getAttribute("data-theme"));
-  check("theme starts from the OS setting and the user's choice survives a reload",
-    first === "light" && chosen === "dark" && again === "dark", `first=${first} chosen=${chosen} reload=${again}`);
-  await ctx.close();
-}
+  const again = await theme(page);
+  check("theme starts dark even on a light OS, and the chosen light theme survives a reload",
+    first === "dark" && chosen === "light" && again === "light", `first=${first} chosen=${chosen} reload=${again}`);
 
-// 9. Download exports the clean page, never the live audit log
-{
-  const { ctx, page } = await open({ live: true });
-  const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#download-html-btn")]);
-  const text = fs.readFileSync(await dl.path(), "utf8");
-  check("downloaded index.html holds no live event data", !text.includes(SECRET) && !text.includes("event-item"),
-    text.includes(SECRET) ? "export contains a live event's file path" : "export contains rendered event rows");
-  await ctx.close();
-}
-
-// 10. Decision pills show and announce their filter state
-{
-  const { ctx, page } = await open();
-  const pill = page.locator(".telemetry-pill.deny-pill");
-  const a = await pill.getAttribute("aria-pressed");
-  await pill.click(); await page.waitForTimeout(200);
-  const b = await page.locator(".telemetry-pill.deny-pill").getAttribute("aria-pressed");
-  check("Deny pill toggles aria-pressed false -> true", a === "false" && b === "true", `before=${a} after=${b}`);
-  await ctx.close();
-}
-
-// 11. Last Event tile never shows green when the newest event carried an injection warning
-{
-  const d = liveData();
-  d.events.push({ ts: "2026-11-07T20:09:30Z", event: "result", decision: "allow", tool_name: "WebFetch",
-    rule: null, tool_use_id: "t9", session_id: "s1", step: 9, input: { url: "https://example.com" },
-    warnings: [{ marker: "ignore-previous", excerpt: "ignore previous instructions" }] });
-  const { ctx, page } = await open({ live: true, data: d });
-  const cls = await page.getAttribute("#tile-last", "class");
-  const txt = await page.textContent("#tile-last");
-  check("Last Event tile flags an injection warning (not tone-ok, says injection)",
-    !/tone-ok/.test(cls) && /injection/i.test(txt), `class="${cls}"`);
-  await ctx.close();
-}
-
-// 12. Smallest rendered text is 12px or larger
-{
-  const { ctx, page } = await open();
+  // 9. Smallest rendered text is 12px or larger
+  await page.locator(".row-toggle").first().click();
   const tiny = await page.evaluate(() => {
     const out = new Set();
     document.querySelectorAll("body *").forEach((e) => {
@@ -273,41 +147,84 @@ for (const [touch, min, w] of [[false, 24, 1440], [true, 44, 390]]) {
   check("no visible text smaller than 12px", tiny.length === 0, tiny.slice(0, 8).join(", "));
   await ctx.close();
 }
+await stop(srv);
 
-// 13. Sample mode and every preview state render with no script errors
+// 10. A live poll keeps keyboard focus and open rows
 {
-  const errs = [];
-  const { ctx, page } = await open({ qs: "?states=1" });
-  page.on("pageerror", (e) => errs.push(e.message));
-  const n = await page.locator(".state-btn").count();
-  for (let i = 0; i < n; i++) { await page.locator(".state-btn").nth(i).click(); await page.waitForTimeout(150); }
-  check("every ?states=1 preview state renders with no script errors", n > 0 && errs.length === 0, `states=${n} errors=${errs.slice(0, 3).join(" | ")}`);
-  await ctx.close();
+  const data = folder("poll");
+  for (const i of [1, 2, 3, 4, 5]) appendLine(data, line(i));
+  mark(data, "s1");
+  const s = await startServer(data, { env: { HOME } });
+  const { ctx, page } = await open(s.link);
+  await page.locator("[data-clear]").focus();
+  await page.waitForTimeout(2600);
+  check("focus on a Clear mark button survives a live poll", await page.evaluate(() => document.activeElement.hasAttribute("data-clear")));
+
+  await page.locator("#audit-table-body .row-toggle").nth(1).focus();
+  await page.keyboard.press("Enter");
+  const focusBefore = await page.evaluate(() => document.activeElement.getAttribute("data-focus"));
+  appendLine(data, line(6, { decision: "allow", rule: "default-allow" }));
+  await page.waitForTimeout(2600);
+  const after = await page.evaluate(() => ({
+    rows: document.querySelectorAll("#audit-table-body tr.event-row").length,
+    open: document.querySelectorAll('#audit-table-body .row-toggle[aria-expanded="true"]').length,
+    detail: (document.querySelector("#audit-table-body tr.detail-row") || {}).textContent || "",
+    focus: document.activeElement.getAttribute("data-focus") || "",
+  }));
+  check("an open row stays open, on the same event, when a new event arrives",
+    after.rows === 6 && after.open === 1 && after.detail.includes('"t4"'), JSON.stringify({ ...after, detail: after.detail.slice(0, 60) }));
+  check("focus on a row survives the redraw that a new event causes", !!focusBefore && after.focus === focusBefore, `${focusBefore} -> ${after.focus}`);
+  await ctx.close(); await stop(s);
 }
 
-// 14. T-033: the sample rows as the viewer sees them: the marked session shows its labels, an old line shows neither
+// 11. An injection warning is counted, tinted and named on its row
 {
-  const { ctx, page } = await open();
-  const rows = await page.evaluate(() => [...document.querySelectorAll("#events-list > li.event-entry")].map((li) => ({
-    tool: (li.querySelector(".event-tool-pill") || {}).textContent,
-    chip: (li.querySelector(".decision-badge") || {}).textContent,
-    note: (li.querySelector(".row-note") || {}).textContent || null,
-    rule: (li.querySelector(".event-rule-cell") || {}).textContent.trim(),
-    inj: !!li.querySelector(".injection-flag"),
-    text: li.innerText,
-  })));
-  const marked = rows.find((r) => r.tool === "WebFetch" && r.note && r.note.includes("session marked"));
-  check("sample WebFetch row of the marked session: Flagged, injection badge, 'warned Claude' and 'session marked'",
-    !!marked && marked.chip === "Flagged" && marked.inj && marked.note === "warned Claude \u00b7 session marked", JSON.stringify(marked));
-  const asked = rows.find((r) => r.tool === "mcp__github__create_issue" && r.chip === "Ask");
-  check("sample ask-after-injection row shows Ask and that rule", !!asked && asked.rule === "ask-after-injection", JSON.stringify(asked));
-  const old = rows.find((r) => r.tool === "WebFetch" && r.inj && r !== marked);
-  check("an old line (warnings, no warned field) shows 'logged only' and neither 'warned Claude' nor 'session marked'",
-    !!old && old.note === "logged only" && !/warned Claude|session marked/.test(old.text), JSON.stringify(old));
+  const data = folder("flag");
+  appendLine(data, line(1));
+  appendLine(data, line(9, { event: "result", decision: "allow", tool_name: "WebFetch", rule: null, input: { url: "https://example.com" },
+    warnings: [{ marker: "ignore-previous", excerpt: "ignore previous instructions" }] }));
+  const s = await startServer(data, { env: { HOME } });
+  const { ctx, page } = await open(s.link);
+  const r = await page.evaluate(() => {
+    const row = document.querySelector("#audit-table-body tr.event-row");
+    return { kpi: document.getElementById("kpi-flag-count").textContent, tinted: row.classList.contains("flagged-row"), text: row.textContent };
+  });
+  check("a reply with an injection warning: Flags card counts 1, the row is tinted and names the marker; an old line with no warned field says neither 'note sent to Claude' nor 'session marked'",
+    r.kpi === "1" && r.tinted && r.text.includes("ignore-previous") && !/note sent to Claude|session marked/.test(r.text), JSON.stringify(r).slice(0, 200));
+  await ctx.close(); await stop(s);
+}
+
+// 12. Log and session strings are text, never markup or script
+{
+  const data = folder("hostile");
+  const hostile = "<img src=x onerror=alert(1)>";
+  appendLine(data, line(1));
+  appendLine(data, line(7, { tool_name: hostile, rule: hostile, step: hostile, tool_use_id: "q'\"><svg onload=alert(3)>", agent: hostile, session_id: hostile, reason: hostile, input: { command: hostile } }));
+  mark(data, "a');alert(2);('");
+  mark(data, hostile);
+  const s = await startServer(data, { env: { HOME } });
+  const { ctx, page } = await open(s.link);
+  const buttons = await page.locator("[data-clear]").count();
+  await page.locator(".row-toggle").first().click();
+  await page.locator("[data-clear]").first().click();
+  await page.waitForTimeout(600);
+  const r = await page.evaluate((h) => ({ injected: document.querySelectorAll("#audit-table-body img, #audit-table-body svg, #taint-actions img, #filter-agent img").length,
+    shown: document.getElementById("audit-table-body").textContent.includes(h) }), hostile);
+  check("hostile log and session text is shown as text: no element is made, no dialog opens, no script error",
+    buttons === 2 && r.injected === 0 && r.shown && page.dialogs.length === 0 && page.errors.length === 0, `${buttons} ${JSON.stringify(r)} dialogs=${page.dialogs} errors=${page.errors}`);
+  await ctx.close(); await stop(s);
+}
+
+// 13. With no server the page says so and shows nothing made up
+{
+  const { ctx, page } = await open("file://" + path.join(REPO, "index.html"));
+  const html = fs.readFileSync(path.join(REPO, "index.html"), "utf8");
+  const r = { mode: await mode(page), detail: await detail(page), rows: await rowCount(page), cards: await page.locator(".agent-card").count(), nhis: await page.locator(".nhi-item").count() };
+  check("opened as a file: Not Connected, how to start the server, no rows, no inventory, and no sample data in the file",
+    r.mode === "Not Connected" && r.detail.includes("make dashboard") && r.rows === 0 && r.cards === 0 && r.nhis === 0 && !/sample/i.test(html) && page.errors.length === 0, JSON.stringify(r));
   await ctx.close();
 }
 
 await browser.close();
-const failed = results.filter((r) => !r.ok).length;
-console.log(`\n${results.length - failed} of ${results.length} checks passed`);
-process.exit(failed ? 1 : 0);
+console.log(failures() ? `\n${failures()} checks FAILED` : "\nall checks passed");
+process.exit(failures() ? 1 : 0);
