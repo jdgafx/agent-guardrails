@@ -183,8 +183,18 @@ await stop(srv);
   appendLine(data, line(1));
   appendLine(data, line(9, { event: "result", decision: "allow", tool_name: "WebFetch", rule: null, input: { url: "https://example.com" },
     warnings: [{ marker: "ignore-previous", excerpt: "ignore previous instructions" }] }));
+  mark(data, "s1", { id: "t9", tool: "WebFetch", markers: ["ignore-previous"], ts: "2026-11-07T20:00:09Z", agent: "claude-code",
+    input: { url: "https://example.com/page" }, excerpts: ["ignore previous instructions"] });
   const s = await startServer(data, { env: { HOME } });
   const { ctx, page } = await open(s.link);
+  for (const t of ["dark", "light"]) { // the marked-session card, with its link, in both themes
+    await setTheme(page, t);
+    await page.addScriptTag({ content: AXE });
+    const v = await page.evaluate(async () => (await axe.run(document.getElementById("taint-banner"), { runOnly: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"] }))
+      .violations.map((x) => `${x.id} (${x.nodes.length}) e.g. ${x.nodes[0].target.join(" ")}`));
+    const link = await page.evaluate(() => document.querySelectorAll('#taint-actions a[href="https://example.com/page"]').length);
+    check(`axe: the marked-session card with its address link has no violations, ${t}`, v.length === 0 && link === 1, `${v.join("; ")} links=${link}`);
+  }
   const r = await page.evaluate(() => {
     const row = document.querySelector("#audit-table-body tr.event-row");
     return { kpi: document.getElementById("kpi-flag-count").textContent, tinted: row.classList.contains("flagged-row"), text: row.textContent };
@@ -202,6 +212,8 @@ await stop(srv);
   appendLine(data, line(7, { tool_name: hostile, rule: hostile, step: hostile, tool_use_id: "q'\"><svg onload=alert(3)>", agent: hostile, session_id: hostile, reason: hostile, input: { command: hostile } }));
   mark(data, "a');alert(2);('", { id: "q'\"><svg onload=alert(4)>", tool: hostile, markers: [hostile], ts: hostile, agent: hostile, input: { url: hostile }, excerpts: [hostile] });
   mark(data, hostile, { id: 7, tool: 7, markers: "x", input: "y", excerpts: 9 });
+  mark(data, "js", { id: "j1", tool: "WebFetch", markers: ["ignore-previous"], input: { url: "javascript:alert(5)" } });
+  mark(data, "red", { id: "r1", tool: "WebFetch", markers: ["ignore-previous"], input: { url: "https://example.com/?t=[REDACTED:github-token]" } });
   const s = await startServer(data, { env: { HOME } });
   const { ctx, page } = await open(s.link);
   const buttons = await page.locator("[data-clear]").count();
@@ -209,9 +221,10 @@ await stop(srv);
   await page.locator("[data-clear]").first().click();
   await page.waitForTimeout(600);
   const r = await page.evaluate((h) => ({ injected: document.querySelectorAll("#audit-table-body img, #audit-table-body svg, #taint-actions img, #taint-actions svg, #filter-agent img").length,
+    links: document.querySelectorAll("#taint-actions a").length,
     shown: document.getElementById("audit-table-body").textContent.includes(h) && document.getElementById("taint-actions").textContent.includes(h) }), hostile);
-  check("hostile log and session text is shown as text: no element is made, no dialog opens, no script error",
-    buttons === 2 && r.injected === 0 && r.shown && page.dialogs.length === 0 && page.errors.length === 0, `${buttons} ${JSON.stringify(r)} dialogs=${page.dialogs} errors=${page.errors}`);
+  check("hostile log and session text is shown as text: no element is made, no dialog opens, no script error; a javascript: or redacted address is never a link",
+    buttons === 4 && r.links === 0 && r.injected === 0 && r.shown && page.dialogs.length === 0 && page.errors.length === 0, `${buttons} ${JSON.stringify(r)} dialogs=${page.dialogs} errors=${page.errors}`);
   await ctx.close(); await stop(s);
 }
 

@@ -621,7 +621,8 @@
     .mark-head .mono { word-break: break-all; }
     .mark-actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .mark-calls { list-style: none; display: flex; flex-direction: column; gap: 10px; margin-top: 10px; font-size: 13px; }
-    .mark-target { margin: 3px 0; color: var(--text-primary); word-break: break-all; user-select: all; }
+    .mark-target { margin: 3px 0; color: var(--text-primary); word-break: break-all; }
+    .mark-link { display: inline-flex; align-items: center; min-height: 24px; color: var(--cyan-text); text-underline-offset: 3px; }
     .mark-why { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--text-secondary); }
 
     /* Added when this page went into the repo: keyboard access, touch sizes, small screens. */
@@ -643,6 +644,7 @@
       .topbar { padding: 12px 16px; }
       .container { padding: 16px 16px 48px; }
     }
+    @media (pointer: coarse) { .mark-link { min-height: 44px; } }
     @media (pointer: coarse) { .btn, .btn.small, .tab-btn, .input, .select, .row-toggle { min-height: 44px; min-width: 44px; justify-content: center; } }
   </style>
 </head>
@@ -692,7 +694,7 @@
           <span>SESSION MARKED AFTER PROMPT-INJECTION FLAG (rule: ask-after-injection)</span>
         </div>
         <div style="font-size: 12.5px; color: var(--text-primary); margin-top: 2px;" id="taint-banner-text">
-          Untrusted output held instruction-like markers. Every non-local tool call now requires human confirmation. Each marked session below shows the call that marked it, what it fetched and the phrases that matched. Addresses are text, not links, so a flagged page is never one click away.
+          Untrusted output held instruction-like markers. Every non-local tool call now requires human confirmation. Each marked session below shows the call that marked it, what it fetched and the phrases that matched. An address opens in a new tab; it is the page that was flagged, so open it with care.
         </div>
       </div>
       <div id="taint-actions"></div>
@@ -1086,6 +1088,13 @@
       return text === "{}" ? "" : text;
     }
 
+    // A web address becomes a link (http and https only, never a redacted one, which would not load).
+    // Anything else, a search query or a tool input, stays text.
+    function targetHtml(target) {
+      if (!/^https?:\/\/[^\s]+$/i.test(target) || target.includes("[REDACTED:")) return highlightRedacted(escapeHtml(target));
+      return `<a class="mark-link" href="${escapeHtml(target)}" target="_blank" rel="noopener noreferrer">${escapeHtml(target)}</a>`;
+    }
+
     function markView(sid, mark) {
       const flagged = state.events.filter(e => e.session_id === sid && e.event === "result" && Array.isArray(e.warnings) && e.warnings.length);
       const named = mark && Array.isArray(mark.calls) ? mark.calls : [];
@@ -1104,7 +1113,7 @@
       const calls = m.calls.length ? m.calls.map(c => `
             <li>
               <div><strong class="mono">${escapeHtml(c.tool || "unknown tool")}</strong>${c.agent ? ` by ${escapeHtml(c.agent)}` : ""}${c.ts ? ` at <span class="mono">${escapeHtml(c.ts)}</span>` : ""}</div>
-              <div class="mark-target mono">${c.target ? highlightRedacted(escapeHtml(c.target)) : `What it fetched is not recorded for this older mark. Search the log for call ${escapeHtml(c.id || "unknown")}.`}</div>
+              <div class="mark-target mono">${c.target ? targetHtml(c.target) : `What it fetched is not recorded for this older mark. Search the log for call ${escapeHtml(c.id || "unknown")}.`}</div>
               <div class="mark-why">${c.markers.map(x => `<span class="badge deny">${escapeHtml(x)}</span>`).join("")}${c.excerpts.map(x => `<span class="mono">&ldquo;${escapeHtml(x)}&rdquo;</span>`).join("")}</div>
             </li>`).join("") : `<li>The call that marked this session is not named in its mark or in the rows loaded here.</li>`;
       return `
@@ -1112,8 +1121,8 @@
           <div class="mark-head">
             <div><strong>Session <span class="mono">${escapeHtml(m.sid)}</span></strong>${m.since ? ` &bull; marked <span class="mono">${escapeHtml(m.since)}</span>` : ""}</div>
             <div class="mark-actions">
-              <button type="button" class="btn" data-session="${escapeHtml(m.sid)}" data-focus="events:${escapeHtml(m.sid)}" aria-label="Show the events of session ${escapeHtml(m.sid)}">Show its events</button>
-              <button type="button" class="btn danger" data-clear="${escapeHtml(m.sid)}" data-focus="clear:${escapeHtml(m.sid)}" aria-label="Clear the mark on session ${escapeHtml(m.sid)}">Clear mark</button>
+              <button type="button" class="btn" data-session="${escapeHtml(m.sid)}" data-focus="events:${escapeHtml(m.sid)}" aria-label="Show its events: session ${escapeHtml(m.sid)}">Show its events</button>
+              <button type="button" class="btn danger" data-clear="${escapeHtml(m.sid)}" data-focus="clear:${escapeHtml(m.sid)}" aria-label="Clear mark: session ${escapeHtml(m.sid)}">Clear mark</button>
             </div>
           </div>
           <ul class="mark-calls">${calls}</ul>${m.more ? `<div style="margin-top: 8px; color: var(--text-secondary);">and ${escapeHtml(m.more)} more flagged call(s) in this session</div>` : ""}

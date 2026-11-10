@@ -131,7 +131,9 @@ const openRow = async (page, index) => {
   check("45 cards: 1 denied, 0 asked, 1 flagged; the banner names the marked session, the call, the address it fetched, when, and the phrases",
     cards === "1,0,1" && pill === "Session Marked (1)" && (await page.locator("[data-clear]").count()) === 1
     && ["Session s1", "WebFetch by claude-code", "https://example.com", "ignore-previous", "exfil-request"].every((t) => why.toLowerCase().includes(t.toLowerCase()))
-    && /marked 20\d\d-\d\d-\d\dT/.test(why) && (await page.locator("#taint-actions a").count()) === 0, `${cards} ${pill} ${why}`);
+    && /marked 20\d\d-\d\d-\d\dT/.test(why), `${cards} ${pill} ${why}`);
+  const link = await page.evaluate(() => { const a = document.querySelector("#taint-actions a"); return a ? [a.getAttribute("href"), a.target, a.rel, Math.round(a.getBoundingClientRect().height) >= 24].join(" ") : ""; });
+  check("45 the fetched address is a link that opens in a new tab without handing this page to it", link === "https://example.com _blank noopener noreferrer true", link);
   await page.click("[data-session]");
   const mine = await rows(page);
   check("45 'Show its events' switches to the audit trail and shows only that session's rows",
