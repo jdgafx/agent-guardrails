@@ -6,6 +6,22 @@ It uses only the Python standard library. No API key, no account, no pip install
 
 ## Get started
 
+One command installs it. Run it in a terminal on macOS or Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jdgafx/agent-guardrails/main/scripts/install.sh | sh
+```
+
+Then one word opens the dashboard in your browser:
+
+```bash
+guardrails
+```
+
+The install wires the guard into Claude Code and adds the `guardrails` command to `~/.local/bin`. It needs `python3`, and `git` or `curl` with `tar`. It installs nothing into Python, and asks for no password and no account. Run it again to update. Ctrl-C stops the dashboard. To guard Cursor or Codex too, run `guardrails --install cursor` or `guardrails --install codex`.
+
+Or do the same by hand:
+
 1. Install it. Run both in a terminal:
 
 ```bash

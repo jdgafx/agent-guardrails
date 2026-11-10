@@ -19,6 +19,7 @@ import signal
 import stat
 import sys
 import time
+import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -348,6 +349,8 @@ def main(argv, plugin_root, page, data=None, notes=()):
                     help="the plugin data folder to read (default: search for it)")
     ap.add_argument("--scan", action="store_true",
                     help="print the NHI and agent inventory of this computer, then exit")
+    ap.add_argument("--open", action="store_true",
+                    help="open the dashboard in the default browser once it is up")
     ap.add_argument("--install", choices=install.TARGETS,
                     help="wire the guard into that agent (hooks, no JSON to copy), then exit")
     args = ap.parse_args(argv)
@@ -380,7 +383,8 @@ def main(argv, plugin_root, page, data=None, notes=()):
         where = " (newest of %d found; --data picks another)" % (len(others) + 1)
     else:
         where = ""
-    _say("agent-guardrails dashboard: http://127.0.0.1:%d/?key=%s" % (port, httpd.key),
+    link = "http://127.0.0.1:%d/?key=%s" % (port, httpd.key)
+    _say("agent-guardrails dashboard: " + link,
          "  Open that exact link. The key is new at every start; any other login account on this "
          "computer is refused without it.",
          "  data folder: %s%s" % (folder, where),
@@ -393,6 +397,8 @@ def main(argv, plugin_root, page, data=None, notes=()):
          *notes,  # before the last line, so a reader that stops at "Ctrl-C stops it" sees them
          "  It reads; its one write clears a session mark when you press that button. Only "
          "this computer can connect. Ctrl-C stops it.")
+    if args.open:  # no browser to start is not an error: the link is printed above
+        webbrowser.open(link)
     signal.signal(signal.SIGINT, signal.default_int_handler)  # also when a parent set it to ignore
     try:
         httpd.serve_forever()
